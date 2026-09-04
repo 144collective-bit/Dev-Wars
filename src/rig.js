@@ -177,6 +177,11 @@ const POSE = {
              sB:[-4,-52], eB:[-11,-46], hB:[-12,-38], kF:[7,-18], fF:[11,-1], kB:[-7,-18], fB:[-13,-1] })
 };
 
+/* Each pose carries its own name so the hurtbox table can key off it. The
+   property is non-enumerable on purpose: the sprite rasteriser walks a pose
+   with for...in expecting nothing but joints. */
+for (const name in POSE) Object.defineProperty(POSE[name], "$name", { value: name });
+
 /* Animations shared by every fighter. Per-character frame data (startup,
    active, recovery) is applied on top by stretching these durations. */
 const ANIM = {

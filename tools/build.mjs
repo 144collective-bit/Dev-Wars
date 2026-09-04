@@ -25,6 +25,7 @@ const MODULES = [
   "config",      /* tunables, world constants, input bits, shared helpers   */
   "input",       /* bindings, saved settings, keyboard, gamepad, touch      */
   "rig",         /* poses and animation data                               */
+  "hurtboxes",   /* what can be hit, per pose (generated)                  */
   "moves",       /* normal-move frame data                                 */
   "characters",  /* the roster: palettes, stats, specials                  */
   "font",        /* the 5x7 bitmap font                                    */

@@ -33,7 +33,7 @@ const ROOM_PREFIX  = "ironcircuit-v1-";  /* namespaces room codes on the broker 
    apart. Bump this on EVERY release: a mismatched pair is refused up front
    with a "refresh the page" message, which is a far cheaper failure than a
    match that silently desyncs halfway through. */
-const GAME_VERSION = "1.1.0";
+const GAME_VERSION = "1.2.0";
 const NET_DELAY    = 3;                  /* frames of input delay in online play */
 
 /* ---- Screen / world constants -------------------------------------------- */

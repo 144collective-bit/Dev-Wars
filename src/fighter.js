@@ -79,21 +79,25 @@ class Fighter {
     if (anim) this.setAnim(anim);
   }
 
-  /* Hurtboxes follow the pose, so crouching really does duck under a high
-     attack and a jumping fighter really is a smaller target. Extended limbs
-     are deliberately not vulnerable — it keeps trades readable. */
+  /* Hurtboxes come from the HURT table, one entry per pose, so crouching still
+     ducks under a high attack and a jumping fighter is still a smaller target
+     — but the boxes are now their own data. Moving a joint changes only the
+     drawing; changing what can be hit means editing src/hurtboxes.js, which
+     is a deliberate gameplay edit and needs a GAME_VERSION bump. */
   hurtBoxes(){
-    const p = this.pose(), sc = this.scale, fx = this.facing;
+    const spec = HURT[this.pose().$name] || HURT_FALLBACK;
+    const sc = this.scale, fx = this.facing;
     const wx = this.px, wy = GROUND_Y - this.py;
-    const at = (j) => ({ x: wx + fx * p[j][0] * sc, y: wy + p[j][1] * sc });
-    const hd = at("hd"), nk = at("nk"), pv = at("pv");
-    const hw = 9 * sc, tw = 11 * sc, lw = 12 * sc;
-    const top = Math.min(nk.y, pv.y), bot = Math.max(nk.y, pv.y);
-    return [
-      { x: hd.x - hw, y: hd.y - 9*sc, w: hw*2, h: 18*sc },
-      { x: Math.min(nk.x, pv.x) - tw, y: top, w: Math.abs(nk.x-pv.x) + tw*2, h: bot - top + 2 },
-      { x: pv.x - lw, y: pv.y, w: lw*2, h: (wy - pv.y) + 1 }
-    ];
+    const out = [];
+    for (const b of spec){
+      out.push({
+        x: fx > 0 ? wx + b[0] * sc : wx - (b[0] + b[2]) * sc,
+        y: wy + b[1] * sc,
+        w: b[2] * sc,
+        h: b[3] * sc + b[4]
+      });
+    }
+    return out;
   }
   hitBox(){
     const m = this.move;
