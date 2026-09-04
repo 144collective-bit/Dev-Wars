@@ -1,0 +1,3151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Iron Circuit</title>
+<style>
+  :root{
+    --bg:#07070c; --ink:#e8e6f0; --dim:#8b88a3;
+    --accent:#ffcc33; --accent2:#ff5566; --good:#5ce08a;
+    --panel:rgba(12,12,22,.92); --line:rgba(255,255,255,.14);
+    --mono:"Courier New",ui-monospace,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:var(--mono); overflow:hidden;
+    -webkit-font-smoothing:none;
+    display:flex; align-items:center; justify-content:center;
+  }
+  #wrap{
+    position:relative; width:100%; height:100%;
+    display:flex; align-items:center; justify-content:center;
+    background:
+      radial-gradient(120% 90% at 50% 0%, #14142a 0%, #07070c 70%);
+  }
+  #screen{
+    position:relative;
+    image-rendering:pixelated; image-rendering:crisp-edges;
+    display:block;
+    box-shadow:0 0 0 2px #000, 0 0 0 4px #24243a, 0 30px 80px rgba(0,0,0,.8);
+    background:#000; touch-action:none;
+  }
+  /* ---------- DOM overlay menus ---------- */
+  #ui{
+    position:absolute; inset:0; display:flex;
+    align-items:center; justify-content:center;
+    pointer-events:none;
+  }
+  .panel{
+    pointer-events:auto;
+    background:var(--panel); border:2px solid var(--line);
+    padding:22px 26px; min-width:330px; max-width:min(560px,92vw);
+    max-height:86vh; overflow:auto;
+    box-shadow:0 20px 60px rgba(0,0,0,.7);
+    backdrop-filter:blur(3px);
+  }
+  .panel h1{
+    margin:0 0 2px; font-size:26px; letter-spacing:5px;
+    color:var(--accent); text-transform:uppercase;
+    text-shadow:2px 2px 0 #a33, 4px 4px 0 rgba(0,0,0,.5);
+  }
+  .panel h2{margin:0 0 14px;font-size:11px;letter-spacing:3px;color:var(--dim);font-weight:400;text-transform:uppercase}
+  .panel h3{margin:16px 0 8px;font-size:11px;letter-spacing:2px;color:var(--accent);text-transform:uppercase}
+  .panel p{margin:0 0 12px;font-size:12px;line-height:1.65;color:var(--dim)}
+  .panel p b{color:var(--ink);font-weight:700}
+  button.mi{
+    display:block; width:100%; text-align:left; margin:0 0 7px;
+    background:#15152a; color:var(--ink); border:2px solid var(--line);
+    padding:11px 13px; font-family:var(--mono); font-size:13px;
+    letter-spacing:1.5px; cursor:pointer; text-transform:uppercase;
+    transition:background .08s,border-color .08s,transform .08s;
+  }
+  button.mi:hover,button.mi:focus{background:#22224a;border-color:var(--accent);outline:none;transform:translateX(3px)}
+  button.mi:disabled{opacity:.35;cursor:not-allowed;transform:none}
+  button.mi .sub{display:block;font-size:10px;color:var(--dim);letter-spacing:.5px;margin-top:3px;text-transform:none}
+  button.ghost{background:transparent;border-color:rgba(255,255,255,.1)}
+  .row{display:flex;gap:8px;align-items:center}
+  .row>*{flex:1}
+  input.code{
+    width:100%; background:#0a0a16; border:2px solid var(--line); color:var(--accent);
+    font-family:var(--mono); font-size:26px; letter-spacing:10px; text-align:center;
+    padding:12px 8px; text-transform:uppercase;
+  }
+  input.code:focus{outline:none;border-color:var(--accent)}
+  .bigcode{
+    font-size:38px; letter-spacing:14px; color:var(--accent); text-align:center;
+    padding:14px 0 10px; text-shadow:0 0 24px rgba(255,204,51,.35);
+  }
+  .status{font-size:11px;color:var(--dim);min-height:17px;letter-spacing:1px;margin-top:10px}
+  .status.err{color:var(--accent2)}
+  .status.ok{color:var(--good)}
+  table.keys{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px}
+  table.keys td{padding:4px 6px;border-bottom:1px solid rgba(255,255,255,.07);color:var(--dim)}
+  table.keys td:first-child{color:var(--ink);white-space:nowrap;width:44%}
+  kbd{
+    background:#22223e;border:1px solid rgba(255,255,255,.2);border-bottom-width:2px;
+    border-radius:3px;padding:1px 5px;font-family:var(--mono);font-size:10px;color:var(--ink)
+  }
+  .hide{display:none!important}
+  /* character select grid */
+  .csgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:6px 0 4px}
+  .cscard{
+    background:#15152a;border:2px solid var(--line);padding:9px 8px;cursor:pointer;
+    text-align:center;transition:border-color .08s,background .08s;
+  }
+  .cscard:hover{background:#22224a}
+  .cscard.sel{border-color:var(--accent);background:#2a2a12}
+  .cscard.p2sel{border-color:#55aaff}
+  .cscard .nm{font-size:12px;letter-spacing:2px;text-transform:uppercase;margin-top:5px}
+  .cscard .rl{font-size:9px;color:var(--dim);letter-spacing:.5px;margin-top:2px}
+  .cscard canvas{image-rendering:pixelated;display:block;margin:0 auto}
+  .movelist{font-size:11px;line-height:1.7;color:var(--dim)}
+  .movelist b{color:var(--accent);font-weight:400}
+  .foot{margin-top:14px;font-size:10px;color:#55536b;letter-spacing:1px;line-height:1.6}
+  /* ---------- on-screen controls ---------- */
+  #touch{position:absolute;inset:0;z-index:40;touch-action:none;-webkit-user-select:none;user-select:none;display:none}
+  body.touch.playing #touch{display:block}
+  body.touch #wrap{align-items:flex-start;padding-top:5vh}
+  @media (orientation:landscape){ body.touch #wrap{align-items:center;padding-top:0} }
+  #tpad{
+    position:absolute;left:3.5vw;bottom:7vh;width:min(30vw,148px);aspect-ratio:1;border-radius:50%;
+    background:rgba(12,12,22,.34);border:2px solid rgba(255,255,255,.13);
+    box-shadow:inset 0 0 0 8px rgba(255,255,255,.03);
+  }
+  #tnub{
+    position:absolute;width:38%;height:38%;left:31%;top:31%;border-radius:50%;
+    background:rgba(255,204,51,.62);border:2px solid rgba(0,0,0,.35);
+    transition:transform .04s linear;pointer-events:none;
+  }
+  #tbtns{
+    position:absolute;right:3.5vw;bottom:7vh;
+    display:grid;grid-template-columns:repeat(3,1fr);gap:min(2.2vw,12px);
+  }
+  .tbtn{
+    width:min(13.5vw,62px);aspect-ratio:1;border-radius:50%;
+    background:rgba(12,12,22,.34);border:2px solid rgba(255,255,255,.13);
+    color:var(--ink);font-family:var(--mono);font-size:min(3.4vw,15px);letter-spacing:1px;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .tbtn.p{border-color:rgba(255,204,51,.42);color:rgba(255,204,51,.85)}
+  .tbtn.k{border-color:rgba(90,168,224,.42);color:rgba(143,201,240,.85)}
+  .tbtn.on{background:rgba(255,204,51,.42);color:#fff;border-color:rgba(255,204,51,.9);transform:scale(.92)}
+  #thint{
+    position:absolute;left:0;right:0;top:32%;text-align:center;pointer-events:none;
+    color:var(--dim);font-size:12px;letter-spacing:2px;text-transform:uppercase;
+  }
+  @media (orientation:landscape){ #thint{display:none} }
+  #tpause{
+    position:absolute;right:3.5vw;top:2.5vh;width:38px;height:30px;border-radius:6px;
+    background:rgba(12,12,22,.4);border:2px solid rgba(255,255,255,.13);color:rgba(232,230,240,.8);
+    font-family:var(--mono);font-size:13px;display:flex;align-items:center;justify-content:center;
+  }
+  /* ---------- key binding table ---------- */
+  table.binds{width:100%;border-collapse:collapse;font-size:11px}
+  table.binds th{
+    text-align:left;color:var(--accent);font-weight:400;letter-spacing:2px;
+    font-size:10px;text-transform:uppercase;padding:0 6px 6px;
+  }
+  table.binds td{padding:3px 6px;border-bottom:1px solid rgba(255,255,255,.07);color:var(--dim)}
+  table.binds td:first-child{color:var(--ink);width:42%}
+  button.keycap{
+    width:100%;background:#15152a;border:2px solid var(--line);color:var(--ink);
+    font-family:var(--mono);font-size:10px;padding:5px 4px;cursor:pointer;letter-spacing:1px;
+  }
+  button.keycap:hover{border-color:var(--accent)}
+  button.keycap.listening{border-color:var(--accent);color:var(--accent);background:#2a2a12}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="screen" width="384" height="216"></canvas>
+  <div id="ui"></div>
+  <div id="touch"></div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
+<script>
+"use strict";
+/* ============================================================================
+   IRON CIRCUIT — a browser fighting game
+   ----------------------------------------------------------------------------
+   Original characters and art. Inspired by the arcade fighting genre; contains
+   no third-party sprites, names, audio, or other assets.
+
+   Architecture
+     - Deterministic integer-only simulation at a fixed 60Hz tick.
+     - Rendering is decoupled and may use floats freely.
+     - Online play is lockstep: both peers run the identical simulation and
+       exchange only input bitmasks, with a few frames of input delay.
+   ========================================================================== */
+
+/* ---- Configuration you may want to change -------------------------------- */
+
+/* Signalling broker used only to introduce two browsers to each other. Once
+   connected, match traffic is peer-to-peer and never touches this server.
+   The default is PeerJS's free public broker: fine for play, best-effort
+   uptime. To use your own PeerServer, replace this whole object, e.g.
+     { host:"peer.example.com", port:443, secure:true, path:"/" }            */
+const PEER_SERVER_CONFIG = null;  /* null = PeerJS public cloud broker */
+
+/* ICE servers for NAT traversal. STUN alone connects most home networks; a
+   TURN server (which you would have to run or rent) covers the rest.        */
+const ICE_SERVERS = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:global.stun.twilio.com:3478" }
+];
+
+const ROOM_PREFIX  = "ironcircuit-v1-";  /* namespaces room codes on the broker */
+
+/* Two peers must be running identical code or their simulations will drift
+   apart. Bump this on EVERY release: a mismatched pair is refused up front
+   with a "refresh the page" message, which is a far cheaper failure than a
+   match that silently desyncs halfway through. */
+const GAME_VERSION = "1.1.0";
+const NET_DELAY    = 3;                  /* frames of input delay in online play */
+
+/* ---- Screen / world constants -------------------------------------------- */
+
+const W = 384, H = 216;          /* internal resolution, scaled up on display */
+const GROUND_Y   = 186;          /* y of the floor line, in screen pixels     */
+const STAGE_W    = 880;          /* playfield width in world pixels           */
+const FP         = 256;          /* fixed-point scale: 1px = 256 units        */
+const GRAVITY    = 62;           /* fixed-point units per frame^2             */
+const TICK_MS    = 1000 / 60;
+
+/* Input bits. Directions are stored raw (screen-relative); the simulation
+   converts them to facing-relative values so replays and netplay agree.      */
+const IN_UP=1, IN_DOWN=2, IN_LEFT=4, IN_RIGHT=8,
+      IN_LP=16, IN_MP=32, IN_HP=64, IN_LK=128, IN_MK=256, IN_HK=512;
+const PUNCHES = IN_LP|IN_MP|IN_HP;
+const KICKS   = IN_LK|IN_MK|IN_HK;
+const BUTTONS = PUNCHES|KICKS;
+
+/* ---- Small deterministic helpers ----------------------------------------- */
+
+const clamp = (v,lo,hi) => v < lo ? lo : v > hi ? hi : v;
+const sign  = v => v < 0 ? -1 : v > 0 ? 1 : 0;
+
+/* Seeded LCG. The host picks the seed and sends it, so both peers roll the
+   same numbers. Only ever used for cosmetic-but-synced things (hit sparks,
+   AI jitter) — never for anything a desync check would miss. */
+function makeRNG(seed){
+  let s = (seed >>> 0) || 1;
+  return function(){
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s;
+  };
+}
+
+/* FNV-1a over the parts of the game state that must match across peers. */
+function hashState(g){
+  let h = 0x811c9dc5;
+  const mix = v => { h ^= (v|0); h = Math.imul(h, 0x01000193) >>> 0; };
+  mix(g.frame); mix(g.timer); mix(g.phase);
+  for (const f of g.fighters){
+    mix(f.x); mix(f.y); mix(f.vx); mix(f.vy);
+    mix(f.hp); mix(f.state); mix(f.stateFrame); mix(f.facing);
+    mix(f.moveId); mix(f.hitstun); mix(f.blockstun); mix(f.meter); mix(f.comboHits);
+    mix(f.wins); mix(f.airborne ? 1 : 0);
+  }
+  return h >>> 0;
+}
+
+/* ============================================================================
+   INPUT
+   ========================================================================== */
+
+/* --- Bindings and saved preferences ---------------------------------------
+   Every input source — keyboard, gamepad, on-screen pad — is reduced to the
+   same bitmask, so the game itself never learns which one you used.        */
+
+const ACTIONS = [
+  ["up",   "Up / jump",     IN_UP],
+  ["down", "Down / crouch", IN_DOWN],
+  ["left", "Left",          IN_LEFT],
+  ["right","Right",         IN_RIGHT],
+  ["lp",   "Light punch",   IN_LP],
+  ["mp",   "Medium punch",  IN_MP],
+  ["hp",   "Heavy punch",   IN_HP],
+  ["lk",   "Light kick",    IN_LK],
+  ["mk",   "Medium kick",   IN_MK],
+  ["hk",   "Heavy kick",    IN_HK]
+];
+const DEFAULT_BINDS = {
+  p1: { up:"KeyW", down:"KeyS", left:"KeyA", right:"KeyD",
+        lp:"KeyT", mp:"KeyY", hp:"KeyU", lk:"KeyG", mk:"KeyH", hk:"KeyJ" },
+  p2: { up:"ArrowUp", down:"ArrowDown", left:"ArrowLeft", right:"ArrowRight",
+        lp:"KeyI", mp:"KeyO", hp:"KeyP", lk:"KeyK", mk:"KeyL", hk:"Semicolon" }
+};
+
+/* Preferences live in localStorage, which throws outright in some privacy
+   modes — so every access is guarded and the game runs fine without it. */
+const STORE_KEY = "ironcircuit.settings.v1";
+const Settings = {
+  binds: JSON.parse(JSON.stringify(DEFAULT_BINDS)),
+  muted:false, diff:"normal", p1:"kestrel", p2:"brick", touchMode:"auto",
+  load(){
+    let raw = null;
+    try { raw = localStorage.getItem(STORE_KEY); } catch(e){ return; }
+    if (!raw) return;
+    let o; try { o = JSON.parse(raw); } catch(e){ return; }
+    if (!o || typeof o !== "object") return;
+    for (const side of ["p1","p2"])
+      if (o.binds && o.binds[side])
+        for (const [act] of ACTIONS)
+          if (typeof o.binds[side][act] === "string") this.binds[side][act] = o.binds[side][act];
+    if (typeof o.muted === "boolean") this.muted = o.muted;
+    if (["easy","normal","hard"].includes(o.diff)) this.diff = o.diff;
+    if (typeof o.p1 === "string" && CHAR_KEYS.includes(o.p1)) this.p1 = o.p1;
+    if (typeof o.p2 === "string" && CHAR_KEYS.includes(o.p2)) this.p2 = o.p2;
+    if (["auto","on","off"].includes(o.touchMode)) this.touchMode = o.touchMode;
+  },
+  save(){
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify({
+        binds:this.binds, muted:this.muted, diff:this.diff,
+        p1:this.p1, p2:this.p2, touchMode:this.touchMode
+      }));
+    } catch(e){ /* storage unavailable or full — preferences just won't stick */ }
+  },
+  resetBinds(){ this.binds = JSON.parse(JSON.stringify(DEFAULT_BINDS)); rebuildMaps(); this.save(); }
+};
+
+let KEYMAP_P1 = {}, KEYMAP_P2 = {}, KEYMAP_SOLO = {};
+function rebuildMaps(){
+  KEYMAP_P1 = {}; KEYMAP_P2 = {};
+  for (const [act,, bit] of ACTIONS){
+    const a = Settings.binds.p1[act], b = Settings.binds.p2[act];
+    if (a) KEYMAP_P1[a] = bit;
+    if (b) KEYMAP_P2[b] = bit;
+  }
+  /* In one-local-player modes we accept either layout, so nobody has to learn
+     the "wrong" side of the keyboard. */
+  KEYMAP_SOLO = Object.assign({}, KEYMAP_P1, KEYMAP_P2, {
+    Numpad4:IN_LEFT, Numpad6:IN_RIGHT, Numpad8:IN_UP, Numpad2:IN_DOWN
+  });
+}
+/* Which player, if any, already uses this key. */
+function bindConflict(code, side, action){
+  for (const s of ["p1","p2"])
+    for (const [act] of ACTIONS)
+      if (Settings.binds[s][act] === code && !(s === side && act === action)) return { side:s, act };
+  return null;
+}
+const KEY_LABELS = { Semicolon:";", Comma:",", Period:".", Slash:"/", Quote:"'",
+  BracketLeft:"[", BracketRight:"]", Backslash:"\\", Minus:"-", Equal:"=", Backquote:"`",
+  Space:"SPACE", ShiftLeft:"L SHIFT", ShiftRight:"R SHIFT", ControlLeft:"L CTRL",
+  ControlRight:"R CTRL", AltLeft:"L ALT", AltRight:"R ALT", Enter:"ENTER", Backspace:"BKSP" };
+function keyLabel(code){
+  if (!code) return "—";
+  if (KEY_LABELS[code]) return KEY_LABELS[code];
+  return code.replace(/^Key|^Digit/, "").replace(/^Arrow/, "").replace(/^Numpad/, "NUM ").toUpperCase();
+}
+
+const Input = {
+  down: Object.create(null),
+  capturing: false,      /* true while the settings screen is grabbing a key */
+  swallow: new Set(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space","Tab"]),
+  init(){
+    addEventListener("keydown", e => {
+      if (e.repeat || this.capturing) return;
+      this.down[e.code] = true;
+      if (this.swallow.has(e.code)) e.preventDefault();
+      Sfx.unlock();
+    });
+    addEventListener("keyup", e => { this.down[e.code] = false; });
+    addEventListener("blur", () => { this.down = Object.create(null); });
+  },
+  read(map){
+    let m = 0;
+    for (const code in map) if (this.down[code]) m |= map[code];
+    return m;
+  },
+  isDown(code){ return !!this.down[code]; }
+};
+
+/* Opposite directions cancel, so a stuck key, a drifting stick and a thumb
+   sliding across the pad can never wedge a fighter. Applied once, after all
+   the input sources for a player have been merged. */
+function cleanMask(m){
+  if ((m & IN_LEFT) && (m & IN_RIGHT)) m &= ~(IN_LEFT|IN_RIGHT);
+  if ((m & IN_UP)   && (m & IN_DOWN))  m &= ~IN_UP;
+  return m;
+}
+
+/* --- Gamepads --------------------------------------------------------------
+   Standard-mapping layout, arranged the way a fight pad usually is: the face
+   buttons are the light and medium attacks, the shoulders the heavies.     */
+const PAD_DEADZONE = 0.45;
+const Pad = {
+  connected(){
+    const gp = navigator.getGamepads ? navigator.getGamepads() : [];
+    let n = 0;
+    for (const g of gp) if (g) n++;
+    return n;
+  },
+  readOne(g){
+    if (!g) return 0;
+    let m = 0;
+    const ax = g.axes[0] || 0, ay = g.axes[1] || 0;
+    if (ax < -PAD_DEADZONE) m |= IN_LEFT; else if (ax > PAD_DEADZONE) m |= IN_RIGHT;
+    if (ay < -PAD_DEADZONE) m |= IN_UP;   else if (ay > PAD_DEADZONE) m |= IN_DOWN;
+    const b = i => !!(g.buttons[i] && g.buttons[i].pressed);
+    if (b(12)) m |= IN_UP;   if (b(13)) m |= IN_DOWN;
+    if (b(14)) m |= IN_LEFT; if (b(15)) m |= IN_RIGHT;
+    if (b(2)) m |= IN_LP;  if (b(3)) m |= IN_MP;  if (b(5) || b(4)) m |= IN_HP;
+    if (b(0)) m |= IN_LK;  if (b(1)) m |= IN_MK;  if (b(7) || b(6)) m |= IN_HK;
+    return m;
+  },
+  /* nth connected pad, so unplugging one does not shuffle the others */
+  read(slot){
+    const gp = navigator.getGamepads ? navigator.getGamepads() : [];
+    let i = 0;
+    for (const g of gp){ if (!g) continue; if (i++ === slot) return this.readOne(g); }
+    return 0;
+  },
+  readAny(){
+    const gp = navigator.getGamepads ? navigator.getGamepads() : [];
+    let m = 0;
+    for (const g of gp) if (g) m |= this.readOne(g);
+    return m;
+  }
+};
+
+/* --- On-screen controls ----------------------------------------------------
+   A round pad rather than four arrow buttons: a quarter-circle is a thumb
+   sweep, which is the only way special moves are playable on glass. Multiple
+   pointers are tracked at once so you can hold a direction and press.      */
+const Touch = {
+  active:false, mask:0, pointers:new Map(), root:null, pad:null, nub:null, btns:[],
+  init(){
+    this.root = document.getElementById("touch");
+    if (!this.root) return;
+    this.root.innerHTML =
+      '<div id="tpad"><div id="tnub"></div></div>' +
+      '<div id="tbtns">' +
+        '<div class="tbtn p" data-bit="' + IN_LP + '">LP</div>' +
+        '<div class="tbtn p" data-bit="' + IN_MP + '">MP</div>' +
+        '<div class="tbtn p" data-bit="' + IN_HP + '">HP</div>' +
+        '<div class="tbtn k" data-bit="' + IN_LK + '">LK</div>' +
+        '<div class="tbtn k" data-bit="' + IN_MK + '">MK</div>' +
+        '<div class="tbtn k" data-bit="' + IN_HK + '">HK</div>' +
+      '</div>' +
+      '<div id="thint">Rotate for a bigger screen</div>' +
+      '<div id="tpause">II</div>';
+    this.pad  = this.root.querySelector("#tpad");
+    this.nub  = this.root.querySelector("#tnub");
+    this.btns = Array.from(this.root.querySelectorAll(".tbtn"));
+    const pause = this.root.querySelector("#tpause");
+
+    const onDown = e => {
+      if (e.target === pause){ e.preventDefault(); Sfx.unlock(); togglePause(); return; }
+      Sfx.unlock();
+      e.preventDefault();
+      this.pointers.set(e.pointerId, 0);
+      this.track(e);
+    };
+    const onMove = e => { if (this.pointers.has(e.pointerId)){ e.preventDefault(); this.track(e); } };
+    const onUp = e => {
+      if (!this.pointers.has(e.pointerId)) return;
+      e.preventDefault();
+      this.pointers.delete(e.pointerId);
+      this.recompute();
+    };
+    this.root.addEventListener("pointerdown", onDown, { passive:false });
+    this.root.addEventListener("pointermove", onMove, { passive:false });
+    this.root.addEventListener("pointerup", onUp, { passive:false });
+    this.root.addEventListener("pointercancel", onUp, { passive:false });
+    this.root.addEventListener("contextmenu", e => e.preventDefault());
+  },
+  track(e){
+    let bits = 0;
+    const pr = this.pad.getBoundingClientRect();
+    const cx = pr.left + pr.width/2, cy = pr.top + pr.height/2;
+    const dx = e.clientX - cx, dy = e.clientY - cy;
+    const r = Math.hypot(dx, dy);
+    /* Generous catch radius: the thumb wanders off the drawn circle. */
+    if (r < pr.width * 0.95){
+      if (r > pr.width * 0.16){
+        const oct = ((Math.round(Math.atan2(-dy, dx) / (Math.PI/4)) % 8) + 8) % 8;
+        bits |= [IN_RIGHT, IN_RIGHT|IN_UP, IN_UP, IN_UP|IN_LEFT,
+                 IN_LEFT, IN_LEFT|IN_DOWN, IN_DOWN, IN_DOWN|IN_RIGHT][oct];
+      }
+    } else {
+      for (const b of this.btns){
+        const br = b.getBoundingClientRect();
+        const bx = br.left + br.width/2, by = br.top + br.height/2;
+        if (Math.hypot(e.clientX - bx, e.clientY - by) < br.width * 0.72)
+          bits |= parseInt(b.dataset.bit, 10);
+      }
+    }
+    this.pointers.set(e.pointerId, bits);
+    this.recompute();
+  },
+  recompute(){
+    let m = 0;
+    for (const bits of this.pointers.values()) m |= bits;
+    this.mask = m;
+    for (const b of this.btns) b.classList.toggle("on", !!(m & parseInt(b.dataset.bit, 10)));
+    if (this.nub){
+      const dx = (m & IN_LEFT) ? -1 : (m & IN_RIGHT) ? 1 : 0;
+      const dy = (m & IN_UP)   ? -1 : (m & IN_DOWN)  ? 1 : 0;
+      this.nub.style.transform = "translate(" + (dx*52) + "%," + (dy*52) + "%)";
+    }
+  },
+  read(){ return this.mask; },
+  apply(){
+    const want = Settings.touchMode === "on" ? true
+               : Settings.touchMode === "off" ? false
+               : (matchMedia("(pointer: coarse)").matches || "ontouchstart" in window);
+    this.active = want;
+    document.body.classList.toggle("touch", want);
+    if (!want){ this.pointers.clear(); this.mask = 0; }
+    if (typeof fit === "function") fit();
+  }
+};
+
+/* --- Motion inputs --------------------------------------------------------
+   Directions are reduced to numpad notation relative to the fighter's facing
+   (6 is always "toward the opponent"). A rolling history of the last frames
+   lets us recognise quarter-circles, dragon-punch motions and charges the way
+   the arcade games do — leniently, and without demanding exact frames.      */
+
+function numpadDir(mask, facing){
+  const fwd = facing > 0 ? IN_RIGHT : IN_LEFT;
+  const bck = facing > 0 ? IN_LEFT  : IN_RIGHT;
+  let h = (mask & fwd) ? 1 : (mask & bck) ? -1 : 0;
+  let v = (mask & IN_UP) ? 1 : (mask & IN_DOWN) ? -1 : 0;
+  return 5 + h + v * 3;   /* 1..9, 5 = neutral */
+}
+
+const MOTION_WINDOW = 14;    /* frames a motion may span */
+const CHARGE_FRAMES = 42;    /* frames a charge must be held */
+
+class MotionBuffer {
+  constructor(){ this.dirs = []; this.chargeBack = 0; this.chargeDown = 0; this.releasedBack = 99; this.releasedDown = 99; }
+  push(dir){
+    this.dirs.push(dir);
+    if (this.dirs.length > 40) this.dirs.shift();
+    /* Charge tracking: holding back/down-back builds a horizontal charge,
+       holding any down builds a vertical one. */
+    if (dir === 4 || dir === 1 || dir === 7) this.chargeBack++;
+    else { if (this.chargeBack >= CHARGE_FRAMES) this.releasedBack = 0; this.chargeBack = 0; }
+    if (dir === 2 || dir === 1 || dir === 3) this.chargeDown++;
+    else { if (this.chargeDown >= CHARGE_FRAMES) this.releasedDown = 0; this.chargeDown = 0; }
+    this.releasedBack++; this.releasedDown++;
+  }
+  /* Was this ordered sequence of directions walked through recently?
+     Extra directions in between are tolerated; order is not. */
+  has(seq){
+    const n = this.dirs.length;
+    const start = Math.max(0, n - MOTION_WINDOW);
+    let si = 0;
+    for (let i = start; i < n && si < seq.length; i++){
+      if (seq[si].includes(this.dirs[i])) si++;
+    }
+    return si === seq.length;
+  }
+  qcf(){ return this.has([[2],[3],[6]]); }                 /* down, down-fwd, fwd */
+  qcb(){ return this.has([[2],[1],[4]]); }                 /* down, down-back, back */
+  dp(){  return this.has([[6],[2,3],[3]]); }               /* fwd, down, down-fwd */
+  hcf(){ return this.has([[4],[1],[2],[3],[6]]); }         /* half circle forward */
+  doubleQcf(){ return this.has([[2],[3],[6],[2],[3],[6]]); }
+  chargedFwd(){ return this.releasedBack <= 11 && (this.dirs[this.dirs.length-1] === 6 || this.dirs[this.dirs.length-1] === 9 || this.dirs[this.dirs.length-1] === 3); }
+  chargedUp(){  return this.releasedDown <= 11 && this.dirs[this.dirs.length-1] >= 7; }
+  consumeCharge(kind){ if (kind === "back") this.releasedBack = 99; else this.releasedDown = 99; }
+  reset(){ this.dirs.length = 0; }
+}
+
+/* ============================================================================
+   THE RIG — poses and animation
+   ----------------------------------------------------------------------------
+   Rather than ship thousands of hand-drawn frames, every fighter is drawn from
+   the same jointed rig: a pose is a set of joint positions in low-res pixels,
+   measured from the point between the feet, with y negative upward. The
+   renderer draws thick pixel limbs between the joints, so the result reads as
+   chunky pixel art while the animation data stays small, readable and easy to
+   tune. Characters differ by palette, proportions, stats and move properties.
+
+   Joints:  pv pelvis · nk neck · hd head
+            sF/eF/hF  front shoulder, elbow, hand      (front = toward opponent)
+            sB/eB/hB  back  shoulder, elbow, hand
+            kF/fF     front knee, foot
+            kB/fB     back  knee, foot
+   ========================================================================== */
+
+const BASE = {
+  pv:[  0,-34], nk:[  0,-54], hd:[  2,-63],
+  sF:[  4,-51], eF:[ 10,-44], hF:[ 13,-35],
+  sB:[ -4,-51], eB:[-10,-44], hB:[-11,-35],
+  kF:[  7,-18], fF:[ 11, -1],
+  kB:[ -6,-18], fB:[-11, -1]
+};
+/* Pose literal: BASE with the given joints overridden. */
+const P = o => Object.assign({}, BASE, o);
+/* Animation: frames are [pose, durationInFrames]. */
+const A = (loop, frames) => ({ loop, frames });
+
+const POSE = {
+/* --- stance & locomotion ------------------------------------------------- */
+  idle1: P({}),
+  idle2: P({ pv:[0,-33], nk:[0,-53], hd:[2,-62], sF:[4,-50], eF:[10,-43], hF:[13,-34],
+             sB:[-4,-50], eB:[-10,-43], hB:[-11,-34] }),
+  idle3: P({ pv:[0,-32], nk:[0,-52], hd:[3,-61], sF:[4,-49], eF:[11,-42], hF:[14,-33],
+             sB:[-4,-49], eB:[-10,-42], hB:[-11,-33], kF:[7,-17], kB:[-6,-17] }),
+
+  walk1: P({ kF:[ 9,-19], fF:[15,-1], kB:[-7,-17], fB:[-12,-1], hF:[14,-36], hB:[-12,-34] }),
+  walk2: P({ pv:[0,-33], kF:[11,-21], fF:[18,-5], kB:[-5,-18], fB:[-10,-1], hF:[13,-38], hB:[-10,-32] }),
+  walk3: P({ kF:[ 9,-18], fF:[14,-1], kB:[-4,-19], fB:[ -7,-3], hF:[12,-36], hB:[-11,-34] }),
+  walk4: P({ kF:[ 6,-18], fF:[10,-1], kB:[-6,-18], fB:[-11,-1], hF:[13,-35], hB:[-11,-35] }),
+  walk5: P({ pv:[0,-33], kF:[ 4,-19], fF:[ 8,-2], kB:[-8,-19], fB:[-15,-4], hF:[14,-34], hB:[-12,-36] }),
+
+  crouch: P({ pv:[0,-20], nk:[0,-37], hd:[2,-46],
+              sF:[4,-35], eF:[11,-30], hF:[13,-24],
+              sB:[-4,-35], eB:[-10,-30], hB:[-11,-24],
+              kF:[13,-11], fF:[17,-1], kB:[-12,-11], fB:[-17,-1] }),
+
+  jumpUp: P({ pv:[0,-38], nk:[0,-58], hd:[2,-67],
+              sF:[4,-55], eF:[9,-63], hF:[12,-70],
+              sB:[-4,-55], eB:[-10,-62], hB:[-13,-68],
+              kF:[8,-26], fF:[9,-12], kB:[-7,-24], fB:[-9,-9] }),
+  jumpBall: P({ pv:[0,-38], nk:[0,-56], hd:[3,-64],
+              sF:[5,-53], eF:[12,-50], hF:[14,-43],
+              sB:[-4,-53], eB:[-11,-50], hB:[-13,-44],
+              kF:[12,-30], fF:[9,-18], kB:[-9,-28], fB:[-7,-16] }),
+  jumpFall: P({ pv:[0,-38], nk:[0,-57], hd:[2,-66],
+              sF:[5,-54], eF:[13,-56], hF:[17,-61],
+              sB:[-5,-54], eB:[-13,-55], hB:[-17,-59],
+              kF:[9,-24], fF:[13,-13], kB:[-8,-25], fB:[-12,-14] }),
+  land: P({ pv:[0,-24], nk:[0,-42], hd:[3,-51],
+              sF:[4,-40], eF:[12,-36], hF:[16,-30],
+              sB:[-4,-40], eB:[-12,-36], hB:[-16,-30],
+              kF:[10,-13], fF:[13,-1], kB:[-9,-13], fB:[-13,-1] }),
+
+/* --- guard ---------------------------------------------------------------- */
+  blockHi: P({ pv:[-3,-34], nk:[-5,-54], hd:[-5,-63],
+              sF:[0,-51], eF:[10,-46], hF:[13,-56],
+              sB:[-8,-51], eB:[2,-44], hB:[6,-52],
+              kF:[6,-18], fF:[9,-1], kB:[-9,-18], fB:[-14,-1] }),
+  blockLo: P({ pv:[-3,-21], nk:[-5,-39], hd:[-5,-48],
+              sF:[0,-37], eF:[9,-33], hF:[12,-43],
+              sB:[-8,-37], eB:[1,-31], hB:[5,-40],
+              kF:[10,-12], fF:[14,-1], kB:[-12,-12], fB:[-16,-1] }),
+
+/* --- reactions ------------------------------------------------------------ */
+  hitHi: P({ pv:[-3,-34], nk:[-6,-53], hd:[-13,-60],
+              sF:[-2,-50], eF:[3,-56], hF:[6,-62],
+              sB:[-9,-50], eB:[-15,-49], hB:[-19,-42],
+              kF:[5,-18], fF:[8,-1], kB:[-8,-18], fB:[-13,-1] }),
+  hitLo: P({ pv:[-3,-31], nk:[-8,-49], hd:[-12,-55],
+              sF:[-3,-46], eF:[3,-41], hF:[6,-36],
+              sB:[-10,-46], eB:[-16,-42], hB:[-20,-37],
+              kF:[4,-17], fF:[7,-1], kB:[-9,-17], fB:[-14,-1] }),
+  hitAir: P({ pv:[-2,-36], nk:[-6,-55], hd:[-13,-61],
+              sF:[-2,-52], eF:[2,-60], hF:[4,-67],
+              sB:[-10,-52], eB:[-17,-51], hB:[-22,-46],
+              kF:[6,-22], fF:[13,-13], kB:[-8,-21], fB:[-16,-11] }),
+  fall1: P({ pv:[-6,-32], nk:[-14,-46], hd:[-22,-50],
+              sF:[-9,-44], eF:[-6,-52], hF:[-3,-59],
+              sB:[-17,-44], eB:[-24,-42], hB:[-30,-37],
+              kF:[3,-22], fF:[12,-16], kB:[-9,-19], fB:[-17,-9] }),
+  fall2: P({ pv:[-8,-22], nk:[-20,-28], hd:[-30,-30],
+              sF:[-15,-27], eF:[-13,-37], hF:[-11,-45],
+              sB:[-24,-27], eB:[-32,-24], hB:[-38,-19],
+              kF:[3,-20], fF:[14,-22], kB:[-6,-15], fB:[-16,-14] }),
+  down: P({ pv:[-8,-8], nk:[-20,-9], hd:[-30,-10],
+              sF:[-16,-9], eF:[-22,-4], hF:[-28,-2],
+              sB:[-22,-10], eB:[-30,-6], hB:[-36,-2],
+              kF:[4,-8], fF:[16,-4], kB:[-2,-6], fB:[10,-2] }),
+  getup: P({ pv:[-4,-18], nk:[-8,-34], hd:[-8,-43],
+              sF:[-4,-32], eF:[2,-28], hF:[6,-22],
+              sB:[-12,-32], eB:[-18,-27], hB:[-22,-20],
+              kF:[7,-11], fF:[11,-1], kB:[-9,-10], fB:[-15,-1] }),
+
+/* --- standing normals ----------------------------------------------------- */
+  jabStart: P({ nk:[1,-54], sF:[5,-51], eF:[13,-50], hF:[18,-50], hB:[-9,-40], eB:[-9,-46] }),
+  jab:      P({ pv:[1,-34], nk:[2,-54], hd:[3,-63], sF:[6,-51], eF:[16,-51], hF:[27,-51],
+                sB:[-3,-51], eB:[-9,-47], hB:[-8,-41], kF:[8,-18], fF:[12,-1] }),
+  straight: P({ pv:[2,-34], nk:[3,-54], hd:[4,-63], sF:[7,-51], eF:[19,-50], hF:[32,-49],
+                sB:[-2,-51], eB:[-10,-46], hB:[-9,-39], kF:[9,-18], fF:[14,-1], kB:[-7,-17], fB:[-13,-1] }),
+  fierceWind: P({ pv:[-3,-34], nk:[-4,-54], hd:[-2,-63], sF:[0,-51], eF:[-4,-46], hF:[-2,-40],
+                sB:[-8,-51], eB:[-14,-47], hB:[-16,-41], kF:[5,-18], fF:[8,-1] }),
+  fierce:   P({ pv:[3,-33], nk:[5,-53], hd:[7,-61], sF:[9,-50], eF:[22,-48], hF:[36,-47],
+                sB:[-1,-50], eB:[-10,-45], hB:[-11,-37], kF:[11,-18], fF:[16,-1], kB:[-8,-16], fB:[-15,-1] }),
+
+  shortStart: P({ pv:[-1,-34], kF:[9,-22], fF:[13,-14], kB:[-6,-18], fB:[-11,-1] }),
+  shortKick: P({ pv:[-2,-34], nk:[-2,-54], hd:[0,-63], hF:[10,-38], hB:[-14,-38],
+                kF:[13,-25], fF:[26,-27], kB:[-7,-18], fB:[-12,-1] }),
+  midKick:  P({ pv:[-3,-34], nk:[-4,-54], hd:[-2,-63], hF:[8,-40], eF:[4,-46], hB:[-16,-40],
+                kF:[16,-30], fF:[31,-31], kB:[-8,-18], fB:[-13,-1] }),
+  highKick: P({ pv:[-4,-33], nk:[-7,-52], hd:[-8,-60], sF:[-3,-49], eF:[3,-44], hF:[7,-38],
+                sB:[-11,-49], eB:[-19,-46], hB:[-24,-41],
+                kF:[15,-40], fF:[30,-48], kB:[-8,-17], fB:[-14,-1] }),
+
+/* --- crouching normals ---------------------------------------------------- */
+  crJab: P({ pv:[0,-21], nk:[0,-39], hd:[3,-48], sF:[4,-37], eF:[13,-38], hF:[23,-39],
+             sB:[-4,-37], eB:[-9,-33], hB:[-9,-27], kF:[11,-12], fF:[14,-1], kB:[-10,-12], fB:[-14,-1] }),
+  crStrong: P({ pv:[0,-22], nk:[0,-40], hd:[3,-49], sF:[4,-38], eF:[13,-43], hF:[24,-47],
+             sB:[-4,-38], eB:[-9,-34], hB:[-9,-28], kF:[11,-12], fF:[14,-1], kB:[-10,-12], fB:[-14,-1] }),
+  crFierce: P({ pv:[0,-24], nk:[0,-43], hd:[4,-52], sF:[5,-41], eF:[12,-51], hF:[17,-63],
+             sB:[-4,-41], eB:[-10,-37], hB:[-11,-31], kF:[11,-13], fF:[14,-1], kB:[-10,-13], fB:[-14,-1] }),
+  crShort: P({ pv:[-1,-21], nk:[-1,-39], hd:[2,-48], hF:[11,-27], hB:[-11,-27],
+             kF:[13,-10], fF:[23,-4], kB:[-10,-12], fB:[-14,-1] }),
+  crMid:   P({ pv:[-3,-20], nk:[-4,-38], hd:[-1,-47], hF:[9,-26], hB:[-13,-26],
+             kF:[15,-11], fF:[29,-7], kB:[-11,-11], fB:[-15,-1] }),
+  sweepWind: P({ pv:[-2,-19], nk:[-3,-37], hd:[0,-46], hF:[8,-25], hB:[-12,-25],
+             kF:[9,-11], fF:[13,-1], kB:[-11,-11], fB:[-15,-1] }),
+  sweep:   P({ pv:[-5,-15], nk:[-8,-32], hd:[-6,-41], sF:[-4,-30], eF:[2,-26], hF:[7,-21],
+             sB:[-12,-30], eB:[-16,-22], hB:[-18,-14],
+             kF:[16,-7], fF:[34,-3], kB:[-11,-8], fB:[-15,-1] }),
+
+/* --- air normals ---------------------------------------------------------- */
+  airJab: P({ pv:[0,-38], nk:[0,-56], hd:[3,-64], sF:[5,-53], eF:[15,-51], hF:[25,-49],
+             sB:[-4,-53], eB:[-11,-50], hB:[-13,-44], kF:[11,-28], fF:[9,-16], kB:[-9,-27], fB:[-8,-15] }),
+  airFierce: P({ pv:[0,-38], nk:[0,-57], hd:[3,-65], sF:[5,-54], eF:[16,-47], hF:[27,-38],
+             sB:[-4,-54], eB:[-12,-52], hB:[-15,-47], kF:[12,-29], fF:[10,-17], kB:[-9,-28], fB:[-8,-16] }),
+  airShort: P({ pv:[0,-38], nk:[0,-56], hd:[3,-64], sF:[5,-53], eF:[12,-48], hF:[15,-42],
+             sB:[-4,-53], eB:[-12,-49], hB:[-15,-44], kF:[14,-30], fF:[25,-26], kB:[-8,-27], fB:[-7,-15] }),
+  airHeavy: P({ pv:[0,-38], nk:[-2,-56], hd:[1,-64], sF:[3,-53], eF:[10,-49], hF:[13,-44],
+             sB:[-6,-53], eB:[-14,-50], hB:[-18,-45], kF:[17,-32], fF:[31,-24], kB:[-8,-26], fB:[-6,-14] }),
+
+/* --- specials ------------------------------------------------------------- */
+  boltWind: P({ pv:[-3,-33], nk:[-4,-53], hd:[-2,-62], sF:[0,-50], eF:[-7,-45], hF:[-13,-40],
+             sB:[-8,-50], eB:[-15,-44], hB:[-20,-38], kF:[5,-18], fF:[8,-1], kB:[-8,-18], fB:[-14,-1] }),
+  boltFire: P({ pv:[2,-33], nk:[3,-53], hd:[4,-62], sF:[6,-50], eF:[18,-44], hF:[30,-40],
+             sB:[-1,-50], eB:[10,-50], hB:[24,-48], kF:[10,-18], fF:[16,-1], kB:[-7,-16], fB:[-15,-1] }),
+  riseWind: P({ pv:[0,-24], nk:[0,-42], hd:[3,-51], sF:[4,-40], eF:[10,-34], hF:[13,-28],
+             sB:[-4,-40], eB:[-11,-35], hB:[-13,-29], kF:[10,-13], fF:[13,-1], kB:[-9,-13], fB:[-13,-1] }),
+  rise: P({ pv:[0,-36], nk:[0,-56], hd:[1,-65], sF:[3,-53], eF:[7,-64], hF:[10,-76],
+             sB:[-5,-53], eB:[-11,-48], hB:[-13,-41], kF:[8,-22], fF:[7,-8], kB:[-7,-20], fB:[-11,-4] }),
+  spin1: P({ pv:[0,-36], nk:[0,-55], hd:[2,-64], sF:[4,-52], eF:[12,-56], hF:[18,-60],
+             sB:[-4,-52], eB:[-12,-55], hB:[-18,-58], kF:[12,-30], fF:[24,-34], kB:[-8,-22], fB:[-10,-10] }),
+  spin2: P({ pv:[0,-36], nk:[0,-55], hd:[2,-64], sF:[4,-52], eF:[13,-50], hF:[20,-47],
+             sB:[-4,-52], eB:[-13,-58], hB:[-20,-62], kF:[6,-30], fF:[2,-40], kB:[-9,-24], fB:[-13,-14] }),
+  grabReach: P({ pv:[2,-34], nk:[2,-54], hd:[4,-62], sF:[6,-51], eF:[17,-50], hF:[28,-48],
+             sB:[-2,-51], eB:[9,-52], hB:[21,-51], kF:[9,-18], fF:[15,-1], kB:[-7,-17], fB:[-13,-1] }),
+  grabHold: P({ pv:[0,-33], nk:[0,-53], hd:[3,-62], sF:[4,-50], eF:[14,-56], hF:[24,-60],
+             sB:[-4,-50], eB:[6,-57], hB:[17,-61], kF:[9,-17], fF:[14,-1], kB:[-8,-17], fB:[-14,-1] }),
+  lance: P({ pv:[1,-34], nk:[1,-54], hd:[3,-63], sF:[5,-51], eF:[18,-52], hF:[31,-52],
+             sB:[-3,-51], eB:[-10,-46], hB:[-10,-39], kF:[10,-18], fF:[17,-1], kB:[-8,-16], fB:[-16,-1] }),
+  fang: P({ pv:[0,-36], nk:[-2,-54], hd:[-2,-63], sF:[2,-51], eF:[-4,-56], hF:[-9,-62],
+             sB:[-6,-51], eB:[-13,-50], hB:[-17,-45], kF:[10,-30], fF:[14,-46], kB:[-4,-24], fB:[-4,-12] }),
+  superHold: P({ pv:[-4,-32], nk:[-5,-52], hd:[-3,-61], sF:[-1,-49], eF:[-9,-44], hF:[-16,-39],
+             sB:[-9,-49], eB:[-17,-43], hB:[-23,-37], kF:[4,-18], fF:[6,-1], kB:[-9,-18], fB:[-16,-1] }),
+  win: P({ pv:[0,-35], nk:[0,-55], hd:[2,-64], sF:[4,-52], eF:[10,-62], hF:[13,-73],
+             sB:[-4,-52], eB:[-11,-46], hB:[-12,-38], kF:[7,-18], fF:[11,-1], kB:[-7,-18], fB:[-13,-1] })
+};
+
+/* Animations shared by every fighter. Per-character frame data (startup,
+   active, recovery) is applied on top by stretching these durations. */
+const ANIM = {
+  idle:      A(true,  [[POSE.idle1,10],[POSE.idle2,8],[POSE.idle3,10],[POSE.idle2,8]]),
+  walkF:     A(true,  [[POSE.walk1,6],[POSE.walk2,6],[POSE.walk3,6],[POSE.walk4,6],[POSE.walk5,6],[POSE.walk4,6]]),
+  walkB:     A(true,  [[POSE.walk4,6],[POSE.walk5,6],[POSE.walk3,6],[POSE.walk2,6],[POSE.walk1,6],[POSE.walk4,6]]),
+  crouch:    A(false, [[POSE.crouch,1]]),
+  jumpRise:  A(false, [[POSE.jumpUp,6],[POSE.jumpBall,999]]),
+  jumpFall:  A(false, [[POSE.jumpFall,999]]),
+  land:      A(false, [[POSE.land,4]]),
+  blockHi:   A(false, [[POSE.blockHi,1]]),
+  blockLo:   A(false, [[POSE.blockLo,1]]),
+  hitHi:     A(false, [[POSE.hitHi,999]]),
+  hitLo:     A(false, [[POSE.hitLo,999]]),
+  hitAir:    A(false, [[POSE.hitAir,999]]),
+  fall:      A(false, [[POSE.fall1,6],[POSE.fall2,999]]),
+  down:      A(false, [[POSE.down,999]]),
+  getup:     A(false, [[POSE.getup,10],[POSE.land,4]]),
+  win:       A(false, [[POSE.win,999]]),
+  intro:     A(false, [[POSE.idle3,20],[POSE.idle1,20]])
+};
+
+/* ============================================================================
+   MOVES
+   ----------------------------------------------------------------------------
+   Frame data reads the way a fighting-game player expects: startup frames
+   before the hitbox appears, active frames while it is out, recovery frames
+   before you can act again. Hitboxes are given in rig space (origin between
+   the feet, y negative upward, facing right) and mirrored with the fighter.
+
+   level  "mid"      blockable standing or crouching
+          "low"      must be blocked crouching
+          "overhead" must be blocked standing
+          "throw"    unblockable, requires proximity
+   ========================================================================== */
+
+function mkMove(o){
+  const m = Object.assign({
+    type:"normal", level:"mid", stance:"stand",
+    startup:5, active:4, recovery:10,
+    dmg:10, chip:0, hitstun:14, blockstun:10,
+    pushHit:520, pushBlock:340, launch:0, knockdown:false,
+    cancelable:false, maxHits:1, rehit:0,
+    meterHit:26, meterBlock:10, meterWhiff:4,
+    invuln:0, moveX:0, moveY:0, air:false, sfx:"punch",
+    poses:[POSE.idle1, POSE.idle1, POSE.idle1], hit:null, onActive:null
+  }, o);
+  const p = m.poses;
+  m.anim = { loop:false, frames:[
+    [p[0], m.startup],
+    [p[1], m.active],
+    [p[2] !== undefined ? p[2] : p[1], m.recovery]
+  ]};
+  m.total = m.startup + m.active + m.recovery;
+  return m;
+}
+
+/* --- the normal moves every fighter shares -------------------------------- */
+const NORMALS = {
+  stLP: mkMove({ id:"stLP", name:"Jab", startup:3, active:3, recovery:6,
+    dmg:6, hitstun:12, blockstun:8, cancelable:true, pushHit:380, pushBlock:300,
+    hit:{x:17,y:-58,w:20,h:14}, poses:[POSE.jabStart,POSE.jab,POSE.jabStart] }),
+  stMP: mkMove({ id:"stMP", name:"Straight", startup:5, active:4, recovery:11,
+    dmg:11, hitstun:15, blockstun:11, cancelable:true,
+    hit:{x:20,y:-56,w:21,h:14}, poses:[POSE.jabStart,POSE.straight,POSE.jab] }),
+  stHP: mkMove({ id:"stHP", name:"Fierce", startup:8, active:5, recovery:18,
+    dmg:17, hitstun:19, blockstun:13, cancelable:true, pushHit:760, pushBlock:520,
+    hit:{x:22,y:-55,w:23,h:16}, poses:[POSE.fierceWind,POSE.fierce,POSE.straight] }),
+  stLK: mkMove({ id:"stLK", name:"Short", startup:4, active:3, recovery:8,
+    dmg:6, hitstun:12, blockstun:8, cancelable:true, sfx:"kick",
+    hit:{x:16,y:-33,w:20,h:13}, poses:[POSE.shortStart,POSE.shortKick,POSE.shortStart] }),
+  stMK: mkMove({ id:"stMK", name:"Forward", startup:6, active:4, recovery:13,
+    dmg:12, hitstun:15, blockstun:11, cancelable:true, sfx:"kick",
+    hit:{x:20,y:-38,w:22,h:13}, poses:[POSE.shortStart,POSE.midKick,POSE.shortKick] }),
+  stHK: mkMove({ id:"stHK", name:"Roundhouse", startup:9, active:5, recovery:20,
+    dmg:18, hitstun:20, blockstun:14, knockdown:true, pushHit:900, pushBlock:600, sfx:"kick",
+    hit:{x:19,y:-55,w:24,h:18}, poses:[POSE.shortStart,POSE.highKick,POSE.midKick] }),
+
+  crLP: mkMove({ id:"crLP", name:"Crouch Jab", stance:"crouch", startup:3, active:3, recovery:6,
+    dmg:5, hitstun:11, blockstun:8, cancelable:true, pushHit:340, pushBlock:260,
+    hit:{x:15,y:-45,w:19,h:12}, poses:[POSE.crouch,POSE.crJab,POSE.crouch] }),
+  crMP: mkMove({ id:"crMP", name:"Crouch Strong", stance:"crouch", startup:5, active:4, recovery:11,
+    dmg:10, hitstun:14, blockstun:10, cancelable:true,
+    hit:{x:16,y:-54,w:19,h:15}, poses:[POSE.crouch,POSE.crStrong,POSE.crouch] }),
+  crHP: mkMove({ id:"crHP", name:"Crouch Fierce", stance:"crouch", startup:6, active:6, recovery:17,
+    dmg:16, hitstun:18, blockstun:12, launch:900, knockdown:true, cancelable:false,
+    hit:{x:8,y:-72,w:20,h:28}, poses:[POSE.crouch,POSE.crFierce,POSE.crouch] }),
+  crLK: mkMove({ id:"crLK", name:"Crouch Short", stance:"crouch", level:"low", startup:4, active:3, recovery:7,
+    dmg:5, hitstun:11, blockstun:8, cancelable:true, sfx:"kick",
+    hit:{x:14,y:-13,w:19,h:12}, poses:[POSE.crouch,POSE.crShort,POSE.crouch] }),
+  crMK: mkMove({ id:"crMK", name:"Crouch Forward", stance:"crouch", level:"low", startup:6, active:4, recovery:13,
+    dmg:11, hitstun:14, blockstun:10, cancelable:true, sfx:"kick",
+    hit:{x:16,y:-15,w:23,h:13}, poses:[POSE.crouch,POSE.crMid,POSE.crouch] }),
+  crHK: mkMove({ id:"crHK", name:"Sweep", stance:"crouch", level:"low", startup:8, active:5, recovery:23,
+    dmg:14, hitstun:18, blockstun:13, knockdown:true, pushHit:600, sfx:"sweep",
+    hit:{x:15,y:-11,w:28,h:11}, poses:[POSE.sweepWind,POSE.sweep,POSE.sweepWind] }),
+
+  jLP: mkMove({ id:"jLP", name:"Air Jab", stance:"air", level:"overhead", air:true,
+    startup:4, active:9, recovery:2, dmg:7, hitstun:13, blockstun:9,
+    hit:{x:15,y:-58,w:20,h:16}, poses:[POSE.airJab,POSE.airJab,POSE.airJab] }),
+  jMP: mkMove({ id:"jMP", name:"Air Strong", stance:"air", level:"overhead", air:true,
+    startup:5, active:9, recovery:2, dmg:12, hitstun:16, blockstun:11,
+    hit:{x:17,y:-54,w:21,h:18}, poses:[POSE.airJab,POSE.airFierce,POSE.airFierce] }),
+  jHP: mkMove({ id:"jHP", name:"Air Fierce", stance:"air", level:"overhead", air:true,
+    startup:6, active:9, recovery:2, dmg:16, hitstun:19, blockstun:13, pushHit:700,
+    hit:{x:17,y:-52,w:23,h:20}, poses:[POSE.airJab,POSE.airFierce,POSE.airFierce] }),
+  jLK: mkMove({ id:"jLK", name:"Air Short", stance:"air", level:"overhead", air:true, sfx:"kick",
+    startup:4, active:11, recovery:2, dmg:7, hitstun:13, blockstun:9,
+    hit:{x:13,y:-36,w:20,h:16}, poses:[POSE.airShort,POSE.airShort,POSE.airShort] }),
+  jMK: mkMove({ id:"jMK", name:"Air Forward", stance:"air", level:"overhead", air:true, sfx:"kick",
+    startup:5, active:11, recovery:2, dmg:12, hitstun:16, blockstun:11,
+    hit:{x:17,y:-38,w:21,h:16}, poses:[POSE.airShort,POSE.airHeavy,POSE.airHeavy] }),
+  jHK: mkMove({ id:"jHK", name:"Air Roundhouse", stance:"air", level:"overhead", air:true, sfx:"kick",
+    startup:6, active:11, recovery:2, dmg:17, hitstun:20, blockstun:14, pushHit:760,
+    hit:{x:18,y:-38,w:24,h:20}, poses:[POSE.airShort,POSE.airHeavy,POSE.airHeavy] }),
+
+  throwAttempt: mkMove({ id:"throw", name:"Throw", type:"throw", level:"throw",
+    startup:2, active:2, recovery:18, dmg:24, hitstun:0, blockstun:0, knockdown:true,
+    meterHit:40, sfx:"throw", hit:{x:12,y:-58,w:22,h:44},
+    poses:[POSE.grabReach,POSE.grabHold,POSE.grabReach] })
+};
+
+/* The button a normal comes out of, per stance. */
+const NORMAL_TABLE = {
+  stand:  { [IN_LP]:"stLP", [IN_MP]:"stMP", [IN_HP]:"stHP", [IN_LK]:"stLK", [IN_MK]:"stMK", [IN_HK]:"stHK" },
+  crouch: { [IN_LP]:"crLP", [IN_MP]:"crMP", [IN_HP]:"crHP", [IN_LK]:"crLK", [IN_MK]:"crMK", [IN_HK]:"crHK" },
+  air:    { [IN_LP]:"jLP",  [IN_MP]:"jMP",  [IN_HP]:"jHP",  [IN_LK]:"jLK",  [IN_MK]:"jMK",  [IN_HK]:"jHK" }
+};
+
+/* ============================================================================
+   CHARACTERS
+   ----------------------------------------------------------------------------
+   Three originals covering the classic archetype spread: an all-rounder, a
+   slow heavy hitter, and a fast charge character. They share the rig and the
+   normal-move table; what differs is palette, proportions, stats and specials.
+   ========================================================================== */
+
+const METER_MAX = 120;
+
+/* Helper for special-move definitions. `check` inspects the motion buffer and
+   the button that was just pressed, and returns true if the input matches. */
+const sp = (o) => mkMove(Object.assign({ type:"special", meterHit:34, meterBlock:14, meterWhiff:8 }, o));
+
+const CHARACTERS = [
+{
+  key:"kestrel", name:"Kestrel", role:"All-rounder",
+  blurb:"Even walk speed, a projectile to control space, and a rising uppercut that beats anything jumping in. The one to learn the game on.",
+  hp:1000, walkF:300, walkB:245, jumpV:1420, jumpX:290, scale:1.00, bulk:0,
+  stageKey:"dockyard",
+  pal:{ skin:"#e8b58a", skinS:"#b8825c", skinB:"#8a5f42", suit:"#3a6ee0", suitS:"#24479c",
+        trim:"#f2f2f4", hair:"#5a3a20", belt:"#e8e2d4", glow:"#7fd8ff", eye:"#20202c" },
+  specials:[
+    { key:"bolt", check:(mb,b)=> (b & PUNCHES) && mb.qcf(),
+      make:(b)=> sp({ id:"bolt_"+b, name:"Gale Bolt", startup:11, active:2, recovery:29,
+        dmg:0, sfx:"fire", poses:[POSE.boltWind,POSE.boltFire,POSE.boltFire], hit:null,
+        proj:{ kind:"bolt", vx: b===IN_LP?740:b===IN_MP?900:1080, dmg:12, chip:3,
+               hitstun:16, blockstun:12, w:18, h:14, oy:-46, ox:20, pushHit:520 } }) },
+    { key:"rise", check:(mb,b)=> (b & PUNCHES) && mb.dp(),
+      make:(b)=> sp({ id:"rise_"+b, name:"Talon Rise", startup:3, active:12, recovery:24,
+        dmg: b===IN_LP?16:b===IN_MP?19:22, hitstun:22, blockstun:14, chip:4,
+        knockdown:true, launch:1000, pushHit:420, invuln: b===IN_LP?6:8,
+        moveX: b===IN_HP?300:220, moveY:1360, air:true, sfx:"heavy",
+        poses:[POSE.riseWind,POSE.rise,POSE.rise], hit:{x:2,y:-80,w:24,h:44} }) },
+    { key:"heel", check:(mb,b)=> (b & KICKS) && mb.qcb(),
+      make:(b)=> sp({ id:"heel_"+b, name:"Cyclone Heel", startup:7, active:16, recovery:20,
+        dmg:8, hitstun:14, blockstun:10, chip:2, maxHits:2, rehit:8, sfx:"kick",
+        moveX: b===IN_LK?210:b===IN_MK?270:330, pushHit:300, pushBlock:200,
+        poses:[POSE.spin1,POSE.spin2,POSE.spin1], hit:{x:6,y:-58,w:30,h:36} }) }
+  ],
+  super:{ key:"tempest", name:"Tempest Bolt", check:(mb,b)=> (b & PUNCHES) && mb.doubleQcf(),
+    make:()=> sp({ id:"super_tempest", name:"Tempest Bolt", type:"super",
+      startup:14, active:2, recovery:38, dmg:0, invuln:12, sfx:"super",
+      poses:[POSE.superHold,POSE.boltFire,POSE.boltFire], hit:null,
+      proj:{ kind:"tempest", vx:660, dmg:11, chip:3, hitstun:16, blockstun:12,
+             w:34, h:30, oy:-52, ox:22, hits:4, pushHit:900 } }) }
+},
+{
+  key:"brick", name:"Brick", role:"Heavy",
+  blurb:"Walks like a cement mixer and hits like one. A command grab that goes straight through guard, and enough health to walk into range.",
+  hp:1150, walkF:222, walkB:180, jumpV:1330, jumpX:250, scale:1.12, bulk:2,
+  stageKey:"foundry",
+  pal:{ skin:"#d99a72", skinS:"#a46a48", skinB:"#78482f", suit:"#c8452e", suitS:"#8c2a1c",
+        trim:"#3a3a46", hair:"#2a2a32", belt:"#5a4a32", glow:"#ffb347", eye:"#20202c" },
+  specials:[
+    { key:"rush", check:(mb,b)=> (b & PUNCHES) && mb.qcf(),
+      make:(b)=> sp({ id:"rush_"+b, name:"Slab Rush", startup:12, active:14, recovery:26,
+        dmg: b===IN_LP?16:b===IN_MP?19:22, hitstun:20, blockstun:14, chip:4,
+        knockdown:true, pushHit:900, pushBlock:520, sfx:"heavy",
+        moveX: b===IN_LP?420:b===IN_MP?520:640,
+        poses:[POSE.fierceWind,POSE.fierce,POSE.straight], hit:{x:8,y:-62,w:32,h:40} }) },
+    { key:"clasp", check:(mb,b)=> (b & PUNCHES) && mb.hcf(),
+      make:()=> sp({ id:"clasp", name:"Iron Clasp", type:"throw", level:"throw",
+        startup:5, active:3, recovery:26, dmg:30, knockdown:true, meterHit:46, sfx:"throw",
+        poses:[POSE.grabReach,POSE.grabHold,POSE.grabReach], hit:{x:8,y:-62,w:26,h:50} }) },
+    { key:"anvil", check:(mb,b)=> (b & KICKS) && mb.qcb(),
+      make:(b)=> sp({ id:"anvil_"+b, name:"Anvil Drop", level:"low", startup:14, active:8, recovery:22,
+        dmg:20, hitstun:20, blockstun:14, chip:5, knockdown:true, sfx:"heavy",
+        moveX: b===IN_LK?160:b===IN_MK?240:320, moveY:1150, air:true,
+        poses:[POSE.jumpUp,POSE.sweep,POSE.sweepWind], hit:{x:-14,y:-16,w:50,h:16} }) }
+  ],
+  super:{ key:"wrecking", name:"Wrecking Line", check:(mb,b)=> (b & PUNCHES) && mb.doubleQcf(),
+    make:()=> sp({ id:"super_wrecking", name:"Wrecking Line", type:"super",
+      startup:10, active:26, recovery:34, dmg:9, hitstun:14, blockstun:10, chip:3,
+      maxHits:5, rehit:6, invuln:10, knockdown:true, moveX:420, sfx:"super",
+      poses:[POSE.superHold,POSE.fierce,POSE.straight], hit:{x:6,y:-64,w:36,h:46} }) }
+},
+{
+  key:"vex", name:"Vex", role:"Speed / charge",
+  blurb:"Fastest walk in the game and a charge projectile that fires almost instantly. Low health — you win by never being where the hit lands.",
+  hp:900, walkF:362, walkB:305, jumpV:1500, jumpX:330, scale:0.95, bulk:-1,
+  stageKey:"neon",
+  pal:{ skin:"#efc6a8", skinS:"#bd8f72", skinB:"#8d6a54", suit:"#7d3ce0", suitS:"#4d1f96",
+        trim:"#25f0d0", hair:"#f2f2f8", belt:"#25f0d0", glow:"#25f0d0", eye:"#20202c" },
+  specials:[
+    { key:"lance", check:(mb,b)=> (b & PUNCHES) && mb.chargedFwd(), charge:"back",
+      make:(b)=> sp({ id:"lance_"+b, name:"Static Lance", startup:8, active:2, recovery:26,
+        dmg:0, sfx:"fire", poses:[POSE.jabStart,POSE.lance,POSE.lance], hit:null,
+        proj:{ kind:"lance", vx: b===IN_LP?980:b===IN_MP?1140:1320, dmg:10, chip:2,
+               hitstun:15, blockstun:11, w:20, h:10, oy:-48, ox:22, pushHit:460 } }) },
+    { key:"fang", check:(mb,b)=> (b & KICKS) && mb.chargedUp(), charge:"down",
+      make:(b)=> sp({ id:"fang_"+b, name:"Sky Fang", startup:4, active:14, recovery:22,
+        dmg: b===IN_LK?14:b===IN_MK?16:18, hitstun:20, blockstun:13, chip:3,
+        knockdown:true, launch:900, invuln:5, moveX: b===IN_HK?360:260, moveY:1440,
+        air:true, sfx:"kick", poses:[POSE.riseWind,POSE.fang,POSE.fang], hit:{x:0,y:-84,w:26,h:46} }) },
+    { key:"razor", check:(mb,b)=> (b & KICKS) && mb.qcf(),
+      make:(b)=> sp({ id:"razor_"+b, name:"Razor Spin", startup:6, active:14, recovery:19,
+        dmg:7, hitstun:13, blockstun:10, chip:2, maxHits:2, rehit:7, sfx:"kick",
+        moveX: b===IN_LK?300:b===IN_MK?380:460, pushHit:280, pushBlock:200,
+        poses:[POSE.spin2,POSE.spin1,POSE.spin2], hit:{x:6,y:-52,w:32,h:34} }) }
+  ],
+  super:{ key:"circuit", name:"Circuit Break", check:(mb,b)=> (b & KICKS) && mb.doubleQcf(),
+    make:()=> sp({ id:"super_circuit", name:"Circuit Break", type:"super",
+      startup:8, active:24, recovery:30, dmg:7, hitstun:12, blockstun:9, chip:2,
+      maxHits:6, rehit:4, invuln:8, knockdown:true, moveX:480, sfx:"super",
+      poses:[POSE.superHold,POSE.spin1,POSE.spin2], hit:{x:4,y:-58,w:34,h:40} }) }
+}
+];
+
+const CHAR_BY_KEY = {};
+for (const c of CHARACTERS) CHAR_BY_KEY[c.key] = c;
+const CHAR_KEYS = CHARACTERS.map(c => c.key);
+
+/* ============================================================================
+   PIXEL FONT
+   ----------------------------------------------------------------------------
+   A 5x7 bitmap font, written out as pictures so it stays easy to edit. Real
+   pixel glyphs beat antialiased browser text at this resolution.
+   ========================================================================== */
+
+const GLYPHS = {
+  A:".###./#...#/#...#/#####/#...#/#...#/#...#",
+  B:"####./#...#/#...#/####./#...#/#...#/####.",
+  C:".###./#...#/#..../#..../#..../#...#/.###.",
+  D:"####./#...#/#...#/#...#/#...#/#...#/####.",
+  E:"#####/#..../#..../####./#..../#..../#####",
+  F:"#####/#..../#..../####./#..../#..../#....",
+  G:".###./#...#/#..../#.###/#...#/#...#/.###.",
+  H:"#...#/#...#/#...#/#####/#...#/#...#/#...#",
+  I:"#####/..#../..#../..#../..#../..#../#####",
+  J:"..###/...#./...#./...#./...#./#..#./.##..",
+  K:"#...#/#..#./#.#../##.../#.#../#..#./#...#",
+  L:"#..../#..../#..../#..../#..../#..../#####",
+  M:"#...#/##.##/#.#.#/#.#.#/#...#/#...#/#...#",
+  N:"#...#/##..#/#.#.#/#.#.#/#..##/#...#/#...#",
+  O:".###./#...#/#...#/#...#/#...#/#...#/.###.",
+  P:"####./#...#/#...#/####./#..../#..../#....",
+  Q:".###./#...#/#...#/#...#/#.#.#/#..#./.##.#",
+  R:"####./#...#/#...#/####./#.#../#..#./#...#",
+  S:".####/#..../#..../.###./....#/....#/####.",
+  T:"#####/..#../..#../..#../..#../..#../..#..",
+  U:"#...#/#...#/#...#/#...#/#...#/#...#/.###.",
+  V:"#...#/#...#/#...#/#...#/#...#/.#.#./..#..",
+  W:"#...#/#...#/#...#/#.#.#/#.#.#/##.##/#...#",
+  X:"#...#/#...#/.#.#./..#../.#.#./#...#/#...#",
+  Y:"#...#/#...#/.#.#./..#../..#../..#../..#..",
+  Z:"#####/....#/...#./..#../.#.../#..../#####",
+  0:".###./#...#/#..##/#.#.#/##..#/#...#/.###.",
+  1:"..#../.##../..#../..#../..#../..#../.###.",
+  2:".###./#...#/....#/...#./..#../.#.../#####",
+  3:"#####/...#./..#../...#./....#/#...#/.###.",
+  4:"...#./..##./.#.#./#..#./#####/...#./...#.",
+  5:"#####/#..../####./....#/....#/#...#/.###.",
+  6:"..##./.#.../#..../####./#...#/#...#/.###.",
+  7:"#####/....#/...#./..#../.#.../.#.../.#...",
+  8:".###./#...#/#...#/.###./#...#/#...#/.###.",
+  9:".###./#...#/#...#/.####/....#/...#./.##..",
+  " ":"...../...../...../...../...../...../.....",
+  ".":"...../...../...../...../...../...../..#..",
+  ",":"...../...../...../...../...../..#../.#...",
+  "!":"..#../..#../..#../..#../..#../...../..#..",
+  "?":".###./#...#/....#/...#./..#../...../..#..",
+  "-":"...../...../...../.###./...../...../.....",
+  "_":"...../...../...../...../...../...../#####",
+  ":":"...../..#../...../...../..#../...../.....",
+  "'":"..#../..#../...../...../...../...../.....",
+  "+":"...../..#../..#../#####/..#../..#../.....",
+  "/":"....#/....#/...#./..#../.#.../#..../#....",
+  "%":"#...#/...#./...#./..#../.#.../.#.../#...#",
+  "(":"...#./..#../.#.../.#.../.#.../..#../...#.",
+  ")":".#.../..#../...#./...#./...#./..#../.#...",
+  "*":"...../.#.#./..#../#####/..#../.#.#./.....",
+  "=":"...../...../#####/...../#####/...../.....",
+  ">":".#.../..#../...#./....#/...#./..#../.#...",
+  "<":"...#./..#../.#.../#..../.#.../..#../...#."
+};
+const GLYPH_ROWS = {};
+for (const c in GLYPHS) GLYPH_ROWS[c] = GLYPHS[c].split("/");
+
+function textWidth(str, sc=1, sp=1){ return str.length * (5 + sp) * sc - sp * sc; }
+
+function drawText(ctx, str, x, y, color, sc=1, sp=1){
+  str = String(str).toUpperCase();
+  ctx.fillStyle = color;
+  let cx = x;
+  for (let i = 0; i < str.length; i++){
+    const rows = GLYPH_ROWS[str[i]] || GLYPH_ROWS["?"];
+    for (let r = 0; r < 7; r++){
+      const row = rows[r];
+      let run = -1;
+      for (let c = 0; c <= 5; c++){
+        const on = c < 5 && row[c] === "#";
+        if (on && run < 0) run = c;
+        else if (!on && run >= 0){ ctx.fillRect(cx + run*sc, y + r*sc, (c-run)*sc, sc); run = -1; }
+      }
+    }
+    cx += (5 + sp) * sc;
+  }
+}
+function drawTextC(ctx, str, cx, y, color, sc=1, sp=1){
+  drawText(ctx, str, Math.round(cx - textWidth(String(str), sc, sp)/2), y, color, sc, sp);
+}
+function drawTextShadow(ctx, str, x, y, color, shadow, sc=1, sp=1){
+  drawText(ctx, str, x + sc, y + sc, shadow, sc, sp);
+  drawText(ctx, str, x, y, color, sc, sp);
+}
+
+/* ============================================================================
+   FIGHTER SPRITE RENDERING
+   ----------------------------------------------------------------------------
+   A pose is rasterised into a small offscreen canvas and cached, keyed by
+   character + pose + facing + tint. Poses are held for several frames at a
+   time, so in practice each unique frame is drawn once for the whole match.
+   ========================================================================== */
+
+const SPRITE_W = 150, SPRITE_H = 130, SPRITE_OX = 75, SPRITE_OY = 112;
+const spriteCache = new Map();
+const OUTLINE = "#14141f";
+
+/* Chunky capsule between two points: stamps square pixels along the segment
+   so edges stay hard instead of antialiasing into mush. */
+function limb(ctx, x0, y0, x1, y1, t, color){
+  const dx = x1 - x0, dy = y1 - y0;
+  const steps = Math.max(Math.abs(dx), Math.abs(dy), 1);
+  const h = t >> 1;
+  ctx.fillStyle = color;
+  for (let i = 0; i <= steps; i++){
+    const x = Math.round(x0 + dx * i / steps) - h;
+    const y = Math.round(y0 + dy * i / steps) - h;
+    ctx.fillRect(x, y, t, t);
+  }
+}
+function blob(ctx, x, y, w, h, color){
+  ctx.fillStyle = color;
+  ctx.fillRect(Math.round(x - w/2), Math.round(y - h/2), w, h);
+}
+/* Rectangle with the four corner pixels knocked out — reads as "round" at
+   this resolution without any antialiasing. */
+function roundRect(ctx, x, y, w, h, color){
+  ctx.fillStyle = color;
+  ctx.fillRect(x + 1, y, w - 2, h);
+  ctx.fillRect(x, y + 1, w, h - 2);
+}
+
+function buildSprite(ch, pose, facing, tint){
+  const cv = document.createElement("canvas");
+  cv.width = SPRITE_W; cv.height = SPRITE_H;
+  const c = cv.getContext("2d");
+  const sc = ch.scale, b = ch.bulk, pal = ch.pal;
+  const J = {};
+  for (const k in pose){
+    J[k] = [ SPRITE_OX + facing * Math.round(pose[k][0] * sc),
+             SPRITE_OY + Math.round(pose[k][1] * sc) ];
+  }
+  const hipF = [ J.pv[0] + facing * 3, J.pv[1] + 1 ];
+  const hipB = [ J.pv[0] - facing * 3, J.pv[1] + 1 ];
+
+  const wUA = 6 + b, wFA = 5 + b, wTH = 9 + b, wSH = 7 + b, wTO = 16 + b*2;
+  const headW = 14 + (b > 0 ? 2 : 0), headH = 15 + (b > 0 ? 1 : 0);
+
+  const col = tint === "flash" ? () => "#ffffff" : (x => x);
+  const OL = tint === "flash" ? "#ffffff" : OUTLINE;
+
+  /* Pass 1: silhouette outline, one pixel fatter than every part. */
+  const outline = () => {
+    limb(c, J.sB[0],J.sB[1], J.eB[0],J.eB[1], wUA+2, OL);
+    limb(c, J.eB[0],J.eB[1], J.hB[0],J.hB[1], wFA+2, OL);
+    limb(c, hipB[0],hipB[1], J.kB[0],J.kB[1], wTH+2, OL);
+    limb(c, J.kB[0],J.kB[1], J.fB[0],J.fB[1], wSH+2, OL);
+    limb(c, J.pv[0],J.pv[1], J.nk[0],J.nk[1], wTO+2, OL);
+    limb(c, hipF[0],hipF[1], J.kF[0],J.kF[1], wTH+2, OL);
+    limb(c, J.kF[0],J.kF[1], J.fF[0],J.fF[1], wSH+2, OL);
+    limb(c, J.sF[0],J.sF[1], J.eF[0],J.eF[1], wUA+2, OL);
+    limb(c, J.eF[0],J.eF[1], J.hF[0],J.hF[1], wFA+2, OL);
+    blob(c, J.hd[0], J.hd[1], headW+2, headH+2, OL);
+    blob(c, J.fF[0]+facing*2, J.fF[1], 11, 6, OL);
+    blob(c, J.fB[0]+facing*2, J.fB[1], 11, 6, OL);
+  };
+  outline();
+
+  /* Pass 2: the parts themselves, back to front. */
+  /* back arm + back leg sit in shadow */
+  limb(c, J.sB[0],J.sB[1], J.eB[0],J.eB[1], wUA, col(pal.suitS));
+  limb(c, J.eB[0],J.eB[1], J.hB[0],J.hB[1], wFA - 1, col(pal.skinB));
+  blob(c, J.hB[0], J.hB[1], wFA+1, wFA+1, col(pal.skinB));
+  limb(c, hipB[0],hipB[1], J.kB[0],J.kB[1], wTH, col(pal.suitS));
+  limb(c, J.kB[0],J.kB[1], J.fB[0],J.fB[1], wSH, col(pal.suitS));
+  blob(c, J.fB[0]+facing*2, J.fB[1], 9, 4, col(pal.trim));
+
+  /* torso, belt, head */
+  limb(c, J.pv[0],J.pv[1], J.nk[0],J.nk[1], wTO, col(pal.suit));
+  limb(c, J.pv[0],J.pv[1], J.nk[0],J.nk[1], Math.max(3, wTO-8), col(pal.suitS));
+  blob(c, J.pv[0], J.pv[1] + 1, wTO, 4, col(pal.belt));
+  blob(c, J.nk[0], J.nk[1] + 3, 7, 5, col(pal.skin));
+  const hx = J.hd[0] - (headW>>1), hy = J.hd[1] - (headH>>1);
+  roundRect(c, hx, hy, headW, headH, col(pal.skin));
+  /* hair: a cap across the crown, plus a wedge down the back of the skull so
+     the head reads as facing somewhere even at this size */
+  roundRect(c, hx, hy, headW, 5, col(pal.hair));
+  c.fillStyle = col(pal.hair);
+  c.fillRect(facing > 0 ? hx : hx + headW - 3, hy + 4, 3, 5);
+  if (tint !== "flash"){
+    c.fillStyle = pal.skinS;
+    c.fillRect(hx + 1, hy + 5, headW - 2, 1);                    /* brow */
+    c.fillRect(hx + (facing > 0 ? 1 : 2), hy + headH - 3, headW - 3, 2); /* jaw */
+    c.fillStyle = pal.eye;
+    c.fillRect(J.hd[0] + facing * 2, hy + 7, 2, 3);              /* eye */
+  }
+
+  /* front leg + front arm read as lit */
+  limb(c, hipF[0],hipF[1], J.kF[0],J.kF[1], wTH, col(pal.suit));
+  limb(c, J.kF[0],J.kF[1], J.fF[0],J.fF[1], wSH, col(pal.suit));
+  blob(c, J.fF[0]+facing*2, J.fF[1], 9, 4, col(pal.trim));
+  limb(c, J.sF[0],J.sF[1], J.eF[0],J.eF[1], wUA, col(pal.suit));
+  limb(c, J.eF[0],J.eF[1], J.hF[0],J.hF[1], wFA, col(pal.skin));
+  blob(c, J.hF[0], J.hF[1], wFA+3, wFA+3, col(pal.skin));
+  return cv;
+}
+
+let spriteKeyCounter = 0;
+function poseKey(pose){
+  if (pose.__k === undefined) Object.defineProperty(pose, "__k", { value: ++spriteKeyCounter });
+  return pose.__k;
+}
+function getSprite(ch, pose, facing, tint){
+  const key = ch.key + "|" + poseKey(pose) + "|" + facing + "|" + (tint||"");
+  let s = spriteCache.get(key);
+  if (!s){ s = buildSprite(ch, pose, facing, tint); spriteCache.set(key, s); }
+  return s;
+}
+
+/* ============================================================================
+   STAGES
+   ----------------------------------------------------------------------------
+   Each stage is baked once into a few parallax layers, then blitted per frame.
+   Backgrounds are purely cosmetic and never touch the simulation.
+   ========================================================================== */
+
+function newLayer(w, h){
+  const cv = document.createElement("canvas");
+  cv.width = w; cv.height = h;
+  return cv;
+}
+/* Banded vertical gradient — stepped on purpose, so it dithers like pixel art
+   instead of smearing like a CSS gradient. */
+function bands(ctx, x, y, w, h, colors){
+  const n = colors.length, step = h / n;
+  for (let i = 0; i < n; i++){
+    ctx.fillStyle = colors[i];
+    ctx.fillRect(x, Math.round(y + i*step), w, Math.ceil(step) + 1);
+  }
+}
+function noiseSpeckle(ctx, x, y, w, h, color, count, rng){
+  ctx.fillStyle = color;
+  for (let i = 0; i < count; i++)
+    ctx.fillRect(x + rng() % w, y + rng() % h, 1, 1);
+}
+
+function buildStage(key){
+  const rng = makeRNG(key.length * 7717 + 13);
+  const far = newLayer(STAGE_W, H), near = newLayer(STAGE_W, H);
+  const f = far.getContext("2d"), n = near.getContext("2d");
+  const FL = GROUND_Y;                       /* floor line */
+  let floorTop, floorBot, accent;
+
+  if (key === "dockyard"){
+    accent = "#7fd8ff";
+    bands(f, 0, 0, STAGE_W, FL - 30, ["#2a2148","#3a2b58","#54386a","#7a4a72","#a5636f","#d08a6f","#e8ab74"]);
+    /* sea */
+    f.fillStyle = "#243a5e"; f.fillRect(0, FL - 42, STAGE_W, 26);
+    for (let i = 0; i < 220; i++){
+      const yy = FL - 42 + (rng() % 24);
+      f.fillStyle = (rng() % 3) ? "#3a5c86" : "#c8916a";
+      f.fillRect(rng() % STAGE_W, yy, 2 + (rng() % 5), 1);
+    }
+    /* distant cranes */
+    for (let i = 0; i < 7; i++){
+      const bx = 40 + i * 130 + (rng() % 40), bh = 46 + (rng() % 26);
+      f.fillStyle = "#1d2036";
+      f.fillRect(bx, FL - 42 - bh, 5, bh);
+      f.fillRect(bx - 26, FL - 42 - bh, 60, 4);
+      f.fillRect(bx + 26, FL - 42 - bh, 3, 14);
+      f.fillStyle = "#e8ab74";
+      f.fillRect(bx + 1, FL - 44 - bh, 3, 2);
+    }
+    /* containers */
+    const cols = ["#b8442f","#2f6fb8","#c9a021","#3a8c5c","#7a3fa0"];
+    for (let i = 0; i < 26; i++){
+      const cw = 46 + (rng()%20), chh = 22, cx = (rng() % (STAGE_W - 60)), stack = 1 + (rng() % 3);
+      for (let s = 0; s < stack; s++){
+        const cy = FL - 18 - chh*(s+1);
+        n.fillStyle = "#14141f"; n.fillRect(cx-1, cy-1, cw+2, chh+2);
+        n.fillStyle = cols[rng() % cols.length]; n.fillRect(cx, cy, cw, chh);
+        n.fillStyle = "rgba(0,0,0,.22)";
+        for (let r = 4; r < cw - 3; r += 5) n.fillRect(cx + r, cy + 3, 2, chh - 6);
+      }
+    }
+    /* shadowed dock wall, so the backdrop meets the floor instead of ending */
+    n.fillStyle = "#1b1420"; n.fillRect(0, FL - 20, STAGE_W, 22);
+    n.fillStyle = "#2a1f2c"; n.fillRect(0, FL - 20, STAGE_W, 3);
+    floorTop = "#6b4a30"; floorBot = "#3b2718";
+  }
+  else if (key === "foundry"){
+    accent = "#ffb347";
+    bands(f, 0, 0, STAGE_W, FL - 20, ["#1d1218","#24141a","#31171c","#401c1e","#522420","#6b2f22"]);
+    /* roof trusses and hanging lamps, so the top half is not dead space */
+    f.fillStyle = "#0e0a10";
+    f.fillRect(0, 8, STAGE_W, 7);
+    for (let x = 0; x < STAGE_W; x += 26){
+      f.fillRect(x, 15, 3, 10);
+      f.fillRect(x, 24, 26, 3);
+    }
+    for (let i = 0; i < 12; i++){
+      const lx = 34 + i * 74;
+      f.fillStyle = "#0e0a10"; f.fillRect(lx, 27, 2, 14);          /* chain */
+      f.fillStyle = "#241820"; f.fillRect(lx - 7, 41, 16, 5);      /* shade */
+      f.fillStyle = "#ffd98a"; f.fillRect(lx - 4, 46, 10, 2);      /* filament */
+      f.fillStyle = "rgba(255,190,90,.10)";
+      for (let k = 0; k < 5; k++) f.fillRect(lx - 5 - k*4, 48 + k*7, 12 + k*8, 7);
+    }
+    /* furnace mouths glowing */
+    for (let i = 0; i < 6; i++){
+      const bx = 60 + i * 145, by = FL - 96;
+      f.fillStyle = "#0d0810"; f.fillRect(bx - 30, by, 76, 78);
+      for (let g = 0; g < 7; g++){
+        f.fillStyle = ["#3a1408","#5c1e08","#8a2f08","#c4550c","#ee8a18","#ffcc44","#ffe9a8"][g];
+        f.fillRect(bx - 20 + g*2, by + 26 + g*2, 56 - g*4, 44 - g*4);
+      }
+    }
+    /* girders */
+    n.fillStyle = "#1a1a24";
+    for (let i = 0; i < 14; i++) n.fillRect(i*68, FL - 130, 9, 118);
+    n.fillRect(0, FL - 134, STAGE_W, 8);
+    n.fillStyle = "#2a2a38";
+    for (let i = 0; i < 14; i++) n.fillRect(i*68 + 2, FL - 130, 3, 118);
+    n.fillStyle = "#3a3a4c";
+    for (let i = 0; i < 14; i++){ n.fillRect(i*68 - 4, FL - 128, 17, 3); n.fillRect(i*68 - 4, FL - 74, 17, 3); }
+    /* molten channel behind the fighters */
+    n.fillStyle = "#14141f"; n.fillRect(0, FL - 16, STAGE_W, 6);
+    n.fillStyle = "#ff8c1a"; n.fillRect(0, FL - 15, STAGE_W, 4);
+    noiseSpeckle(n, 0, FL - 15, STAGE_W, 4, "#ffe9a8", 400, rng);
+    floorTop = "#3c3742"; floorBot = "#1a1820";
+  }
+  else { /* neon */
+    accent = "#25f0d0";
+    bands(f, 0, 0, STAGE_W, FL - 6, ["#08061c","#100a2c","#191040","#28154e","#3c1c56","#57235a","#7c3057"]);
+    /* far skyline: flat silhouettes only, so the near towers read as nearer */
+    for (let i = 0; i < 44; i++){
+      const bw = 24 + (rng()%52), bh = 26 + (rng()%62), bx = (rng() % (STAGE_W - 40));
+      f.fillStyle = "#180f32";
+      f.fillRect(bx, FL - 26 - bh, bw, bh + 26);
+    }
+    /* near towers, lit edge and window grid */
+    for (let i = 0; i < 18; i++){
+      const bw = 40 + (rng()%38), bh = 58 + (rng()%80), bx = (rng() % (STAGE_W - 52));
+      const top = FL - 24 - bh;
+      n.fillStyle = "#0b0818"; n.fillRect(bx - 1, top - 1, bw + 2, bh + 26);
+      n.fillStyle = "#1b1636"; n.fillRect(bx, top, bw, bh + 24);
+      n.fillStyle = "#282249"; n.fillRect(bx, top, 3, bh + 24);
+      n.fillStyle = "#100c22"; n.fillRect(bx + bw - 3, top, 3, bh + 24);
+      for (let wy = top + 6; wy < FL - 30; wy += 8)
+        for (let wx = bx + 5; wx < bx + bw - 5; wx += 7)
+          if (rng() % 3 === 0){
+            n.fillStyle = (rng()%4) ? "#f2d98a" : "#7fe8ff";
+            n.fillRect(wx, wy, 3, 4);
+          }
+    }
+    /* hanging neon banners */
+    const neons = ["#ff3d8b","#25f0d0","#ffd93d","#8a5cff","#4dd2ff"];
+    for (let i = 0; i < 14; i++){
+      const cx = 26 + i*62 + (rng()%22), cy = FL - 100 - (rng()%44);
+      const col = neons[rng() % neons.length], wdt = 7 + (rng()%4), hgt = 26 + (rng()%22);
+      n.fillStyle = "rgba(255,255,255,.06)"; n.fillRect(cx - 4, cy - 4, wdt + 8, hgt + 8);
+      n.fillStyle = "#0b0818"; n.fillRect(cx - 1, cy - 1, wdt + 2, hgt + 2);
+      n.fillStyle = col; n.fillRect(cx, cy, wdt, hgt);
+      n.fillStyle = "rgba(255,255,255,.55)"; n.fillRect(cx + 1, cy + 1, 2, hgt - 2);
+      n.fillStyle = "rgba(0,0,0,.34)";
+      for (let t = 5; t < hgt - 2; t += 6) n.fillRect(cx, cy + t, wdt, 2);
+    }
+    /* street-level wall and its reflected glow */
+    n.fillStyle = "#07091a"; n.fillRect(0, FL - 24, STAGE_W, 26);
+    n.fillStyle = "#161d38"; n.fillRect(0, FL - 24, STAGE_W, 3);
+    for (let x = 8; x < STAGE_W; x += 46){
+      n.fillStyle = "rgba(37,240,208,.30)"; n.fillRect(x, FL - 18, 18, 2);
+      n.fillStyle = "rgba(255,61,139,.22)"; n.fillRect(x + 24, FL - 12, 12, 2);
+    }
+    floorTop = "#20222e"; floorBot = "#0e0f16";
+  }
+
+  /* floor is shared geometry; only the palette changes per stage */
+  const floor = newLayer(STAGE_W, H - FL + 10);
+  const fc = floor.getContext("2d");
+  bands(fc, 0, 0, STAGE_W, H - FL + 10, [floorTop, floorTop, floorBot]);
+  fc.fillStyle = "rgba(0,0,0,.35)";
+  for (let x = 0; x < STAGE_W; x += 16) fc.fillRect(x, 0, 1, H - FL + 10);
+  for (let y = 4; y < H - FL + 10; y += 6) fc.fillRect(0, y, STAGE_W, 1);
+  fc.fillStyle = "#14141f"; fc.fillRect(0, 0, STAGE_W, 2);
+
+  return { far, near, floor, accent, floorY: FL };
+}
+
+const STAGES = {};
+function stageFor(key){
+  if (!STAGES[key]) STAGES[key] = buildStage(key);
+  return STAGES[key];
+}
+
+/* ============================================================================
+   MOVE REGISTRY
+   ----------------------------------------------------------------------------
+   Every move gets a stable numeric id so the desync checksum can include
+   "which move is this fighter doing" without hashing object references.
+   Both peers build the registry in the same order, so the ids agree.
+   ========================================================================== */
+
+const ALL_MOVES = [];
+function registerMove(m){ m.num = ALL_MOVES.length + 1; ALL_MOVES.push(m); return m; }
+for (const k in NORMALS) registerMove(NORMALS[k]);
+const BUTTON_LIST = [IN_LP, IN_MP, IN_HP, IN_LK, IN_MK, IN_HK];
+for (const ch of CHARACTERS){
+  ch.spMoves = {};
+  for (const s of ch.specials){
+    ch.spMoves[s.key] = {};
+    for (const b of BUTTON_LIST) ch.spMoves[s.key][b] = registerMove(s.make(b));
+  }
+  ch.superMove = registerMove(ch.super.make());
+}
+
+/* ============================================================================
+   FIGHTER
+   ========================================================================== */
+
+const S = { IDLE:0, WALKF:1, WALKB:2, CROUCH:3, JUMP:4, LAND:5, ATTACK:6,
+            HITSTUN:7, BLOCKSTUN:8, KNOCKDOWN:9, GETUP:10, THROWN:11,
+            WIN:12, INTRO:13, DEFEAT:14 };
+
+function animPose(anim, frame){
+  const fr = anim.frames;
+  let total = 0;
+  for (const x of fr) total += x[1];
+  if (total <= 0) return fr[0][0];
+  let t = anim.loop ? (frame % total) : Math.min(frame, total - 1);
+  for (const x of fr){ if (t < x[1]) return x[0]; t -= x[1]; }
+  return fr[fr.length - 1][0];
+}
+const boxOverlap = (a, b) =>
+  a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+
+class Fighter {
+  constructor(ch, id){
+    this.ch = ch; this.id = id;
+    this.maxHp = ch.hp;
+    this.mb = new MotionBuffer();
+    this.wins = 0;
+    this.reset(0, 1, true);
+  }
+  reset(x, facing, full){
+    this.x = x * FP; this.y = 0; this.vx = 0; this.vy = 0;
+    this.facing = facing;
+    if (full){ this.hp = this.maxHp; this.meter = 0; }
+    this.state = S.INTRO; this.stateFrame = 0;
+    this.anim = ANIM.intro; this.animFrame = 0;
+    this.move = null; this.moveId = 0;
+    this.hitstun = 0; this.blockstun = 0; this.downTimer = 0;
+    this.airborne = false; this.crouching = false; this.guarding = false;
+    this.hitDone = new Set(); this.rehitTimer = 0; this.hitCount = 0;
+    this.invuln = 0; this.flash = 0; this.comboHits = 0; this.comboTimer = 0;
+    this.comboShow = 0; this.comboShowT = 0;
+    this.prevIn = 0; this.curIn = 0; this.cancelOk = false;
+    this.projCount = 0; this.throwVictim = null; this.jumpDir = 0;
+    this.pressBuf = 0;
+    this.mb.reset();
+  }
+  get scale(){ return this.ch.scale; }
+  get pushHalf(){ return Math.round(17 * this.scale * FP); }
+  get px(){ return this.x / FP; }          /* float, for rendering only */
+  get py(){ return this.y / FP; }
+
+  pose(){
+    if (this.state === S.ATTACK && this.move) return animPose(this.move.anim, this.stateFrame);
+    return animPose(this.anim, this.animFrame);
+  }
+  setAnim(a){ if (this.anim !== a){ this.anim = a; this.animFrame = 0; } }
+  setState(st, anim){
+    this.state = st; this.stateFrame = 0;
+    if (anim) this.setAnim(anim);
+  }
+
+  /* Hurtboxes follow the pose, so crouching really does duck under a high
+     attack and a jumping fighter really is a smaller target. Extended limbs
+     are deliberately not vulnerable — it keeps trades readable. */
+  hurtBoxes(){
+    const p = this.pose(), sc = this.scale, fx = this.facing;
+    const wx = this.px, wy = GROUND_Y - this.py;
+    const at = (j) => ({ x: wx + fx * p[j][0] * sc, y: wy + p[j][1] * sc });
+    const hd = at("hd"), nk = at("nk"), pv = at("pv");
+    const hw = 9 * sc, tw = 11 * sc, lw = 12 * sc;
+    const top = Math.min(nk.y, pv.y), bot = Math.max(nk.y, pv.y);
+    return [
+      { x: hd.x - hw, y: hd.y - 9*sc, w: hw*2, h: 18*sc },
+      { x: Math.min(nk.x, pv.x) - tw, y: top, w: Math.abs(nk.x-pv.x) + tw*2, h: bot - top + 2 },
+      { x: pv.x - lw, y: pv.y, w: lw*2, h: (wy - pv.y) + 1 }
+    ];
+  }
+  hitBox(){
+    const m = this.move;
+    if (!m || !m.hit) return null;
+    const f = this.stateFrame;
+    if (f < m.startup || f >= m.startup + m.active) return null;
+    if (this.hitCount >= m.maxHits) return null;
+    const sc = this.scale, wx = this.px, wy = GROUND_Y - this.py;
+    const h = m.hit;
+    const x = this.facing > 0 ? wx + h.x * sc : wx - (h.x + h.w) * sc;
+    return { x, y: wy + h.y * sc, w: h.w * sc, h: h.h * sc };
+  }
+  isInvulnerable(){
+    if (this.invuln > 0) return true;
+    if (this.state === S.ATTACK && this.move && this.stateFrame < this.move.invuln) return true;
+    return false;
+  }
+  canAct(){
+    return this.state === S.IDLE || this.state === S.WALKF || this.state === S.WALKB ||
+           this.state === S.CROUCH || this.state === S.JUMP;
+  }
+  addMeter(v){ this.meter = clamp(this.meter + v, 0, METER_MAX); }
+}
+
+/* --- move selection ------------------------------------------------------- */
+
+function pickSpecial(f, pressed){
+  const ch = f.ch;
+  if (f.meter >= METER_MAX && ch.super.check(f.mb, pressed))
+    return { move: ch.superMove, superMove: true };
+  for (const s of ch.specials){
+    if (!s.check(f.mb, pressed)) continue;
+    const btn = BUTTON_LIST.find(b => pressed & b) || IN_LP;
+    if (s.charge) f.mb.consumeCharge(s.charge);
+    return { move: ch.spMoves[s.key][btn], superMove: false };
+  }
+  return null;
+}
+function pickNormal(f, pressed){
+  const stance = f.airborne ? "air" : f.crouching ? "crouch" : "stand";
+  const table = NORMAL_TABLE[stance];
+  for (const b of BUTTON_LIST) if (pressed & b){
+    const key = table[b];
+    if (key) return NORMALS[key];
+  }
+  return null;
+}
+function startMove(f, m, isSuper){
+  f.move = m; f.moveId = m.num;
+  f.setState(S.ATTACK, null);
+  f.hitDone.clear(); f.hitCount = 0; f.rehitTimer = 0;
+  f.cancelOk = false;
+  if (isSuper) f.meter = 0;
+}
+
+/* ============================================================================
+   THE SIMULATION
+   ----------------------------------------------------------------------------
+   One `step()` is exactly one 60Hz frame and touches only integers, so two
+   machines running the same inputs produce byte-identical state. Anything
+   cosmetic (camera, sparks, screen shake) is derived here too, but is never
+   allowed to feed back into the numbers the checksum covers.
+   ========================================================================== */
+
+const PH = { INTRO:0, FIGHT:1, KO:2, ROUNDEND:3, MATCHEND:4 };
+const ROUND_FRAMES = 99 * 60;
+const WINS_NEEDED   = 2;
+
+class Game {
+  constructor(charKeys, seed){
+    this.seed = seed >>> 0;
+    this.rng = makeRNG(this.seed);
+    this.fighters = [ new Fighter(CHAR_BY_KEY[charKeys[0]], 0),
+                      new Fighter(CHAR_BY_KEY[charKeys[1]], 1) ];
+    this.stage = this.fighters[0].ch.stageKey;
+    this.round = 1; this.matchOver = false; this.matchWinner = -1;
+    this.frame = 0;
+    this.effects = []; this.projectiles = [];
+    this.camX = (STAGE_W - W) / 2; this.shake = 0;
+    this.announce = ""; this.announceT = 0;
+    this.startRound(true);
+  }
+  startRound(full){
+    const mid = STAGE_W / 2;
+    this.fighters[0].reset(mid - 52, 1, full);
+    this.fighters[1].reset(mid + 52, -1, full);
+    if (!full) for (const f of this.fighters) f.hp = f.maxHp;   /* meter carries over */
+    this.projectiles.length = 0; this.effects.length = 0;
+    this.timer = ROUND_FRAMES;
+    this.phase = PH.INTRO; this.phaseTimer = 0;
+    this.hitstop = 0; this.koSide = -1;
+    this.setAnnounce("ROUND " + this.round, 70);
+  }
+  setAnnounce(t, dur){ this.announce = t; this.announceT = dur; }
+  fx(type, x, y, extra){
+    const e = Object.assign({ type, x, y, t:0, life:14 }, extra||{});
+    this.effects.push(e);
+    if (this.effects.length > 60) this.effects.shift();
+  }
+
+  /* ---------------------------------------------------------------- step -- */
+  step(inputs){
+    this.frame++;
+    if (this.announceT > 0) this.announceT--;
+    if (this.shake > 0) this.shake--;
+
+    if (this.hitstop > 0){
+      this.hitstop--;
+      /* Freeze frames stop the action, not the controller. Inputs made during
+         hitstop are still read and buffered, which is exactly how you confirm
+         a hit and cancel the normal into a special. */
+      for (let i = 0; i < 2; i++) this.bufferInput(this.fighters[i], inputs[i]|0);
+      this.updateEffects();
+      this.updateCamera();
+      return;
+    }
+
+    if (this.phase === PH.INTRO){
+      this.phaseTimer++;
+      if (this.phaseTimer === 72) this.setAnnounce("FIGHT!", 46);
+      if (this.phaseTimer >= 100){
+        this.phase = PH.FIGHT;
+        for (const f of this.fighters) f.setState(S.IDLE, ANIM.idle);
+      }
+      for (const f of this.fighters){ f.animFrame++; }
+      this.updateCamera();
+      return;
+    }
+
+    if (this.phase === PH.FIGHT){
+      for (let i = 0; i < 2; i++)
+        this.updateFighter(this.fighters[i], this.fighters[1-i], inputs[i]|0);
+      this.physics();
+      this.separate();
+      this.updateProjectiles();
+      this.detectHits();
+      for (const f of this.fighters){ f.stateFrame++; f.animFrame++; if (f.invuln > 0) f.invuln--; if (f.flash > 0) f.flash--;
+        if (f.comboTimer > 0){ f.comboTimer--; if (f.comboTimer === 0) f.comboHits = 0; }
+        if (f.comboShowT > 0) f.comboShowT--; }
+      this.timer--;
+      this.checkRoundEnd();
+    }
+    else if (this.phase === PH.KO || this.phase === PH.ROUNDEND || this.phase === PH.MATCHEND){
+      this.phaseTimer++;
+      for (let i = 0; i < 2; i++) this.updateFighter(this.fighters[i], this.fighters[1-i], 0);
+      this.physics();
+      this.separate();
+      this.updateProjectiles();
+      for (const f of this.fighters){ f.stateFrame++; f.animFrame++; if (f.flash > 0) f.flash--; }
+      if (this.phase === PH.KO && this.phaseTimer > 96) this.finishRound();
+      if (this.phase === PH.ROUNDEND && this.phaseTimer > 150) this.startRound(false);
+    }
+    this.updateEffects();
+    this.updateCamera();
+  }
+
+  /* ------------------------------------------------------------- fighters -- */
+  /* Read a frame of input without advancing the game: used during hitstop. */
+  bufferInput(f, input){
+    f.prevIn = f.curIn; f.curIn = input;
+    f.pressBuf |= (input & ~f.prevIn) & BUTTONS;
+    f.mb.push(numpadDir(input, f.facing));
+  }
+  updateFighter(f, opp, input){
+    f.prevIn = f.curIn; f.curIn = input;
+    const pressed = (input & ~f.prevIn) | f.pressBuf;
+    f.pressBuf = 0;
+
+    /* Face the opponent whenever you are free to move — never mid-move. */
+    if (!f.airborne && f.canAct() && f.px !== opp.px)
+      f.facing = opp.px > f.px ? 1 : -1;
+    f.mb.push(numpadDir(input, f.facing));
+
+    switch (f.state){
+      case S.HITSTUN:
+        if (--f.hitstun <= 0 && !f.airborne) f.setState(S.IDLE, ANIM.idle);
+        break;
+      case S.BLOCKSTUN:
+        if (--f.blockstun <= 0) f.setState(S.IDLE, ANIM.idle);
+        break;
+      case S.KNOCKDOWN:
+        if (!f.airborne){
+          if (--f.downTimer <= 0){ f.setState(S.GETUP, ANIM.getup); f.invuln = 16; }
+        }
+        break;
+      case S.GETUP:
+        if (f.stateFrame >= 14) f.setState(S.IDLE, ANIM.idle);
+        break;
+      case S.THROWN:
+        if (f.stateFrame >= 18){ f.setState(S.KNOCKDOWN, ANIM.fall); f.downTimer = 30; f.airborne = false; }
+        break;
+      case S.LAND:
+        if (f.stateFrame >= 4) f.setState(S.IDLE, ANIM.idle);
+        break;
+      case S.WIN: case S.DEFEAT: case S.INTRO:
+        break;
+      case S.ATTACK:
+        this.advanceAttack(f, opp, input, pressed);
+        break;
+      default:
+        this.freeActions(f, opp, input, pressed);
+    }
+  }
+
+  freeActions(f, opp, input, pressed){
+    const fwd  = f.facing > 0 ? IN_RIGHT : IN_LEFT;
+    const back = f.facing > 0 ? IN_LEFT  : IN_RIGHT;
+    f.crouching = !f.airborne && !!(input & IN_DOWN);
+    f.guarding  = !f.airborne && !!(input & back);
+
+    if (pressed & BUTTONS){
+      /* Throw: light punch and light kick together, in range, on the floor. */
+      const lightPair = (pressed & (IN_LP|IN_LK)) && (input & IN_LP) && (input & IN_LK);
+      if (lightPair && !f.airborne && !f.crouching &&
+          Math.abs(f.px - opp.px) < 46 * f.scale && !opp.airborne){
+        startMove(f, NORMALS.throwAttempt, false);
+        return;
+      }
+      const spec = pickSpecial(f, pressed);
+      if (spec){ startMove(f, spec.move, spec.superMove); Sfx.play(spec.superMove ? "super" : "whiff"); return; }
+      const nrm = pickNormal(f, pressed);
+      if (nrm){ startMove(f, nrm, false); Sfx.play("whiff"); return; }
+    }
+
+    if (f.airborne){ f.setAnim(f.vy > 0 ? ANIM.jumpRise : ANIM.jumpFall); return; }
+
+    if (input & IN_UP){
+      const dir = (input & fwd) ? 1 : (input & back) ? -1 : 0;
+      f.vy = f.ch.jumpV;
+      f.vx = dir * f.facing * f.ch.jumpX;
+      f.airborne = true; f.jumpDir = dir;
+      f.setState(S.JUMP, ANIM.jumpRise);
+      Sfx.play("jump");
+      this.fx("dust", f.px, GROUND_Y, { life: 12 });
+      return;
+    }
+    if (input & IN_DOWN){ f.vx = 0; f.setState(S.CROUCH, ANIM.crouch); return; }
+    if (input & fwd){ f.vx = f.facing * f.ch.walkF; if (f.state !== S.WALKF) f.setState(S.WALKF, ANIM.walkF); return; }
+    if (input & back){ f.vx = -f.facing * f.ch.walkB; if (f.state !== S.WALKB) f.setState(S.WALKB, ANIM.walkB); return; }
+    f.vx = 0;
+    if (f.state !== S.IDLE) f.setState(S.IDLE, ANIM.idle);
+  }
+
+  advanceAttack(f, opp, input, pressed){
+    const m = f.move;
+    if (!m){ f.setState(S.IDLE, ANIM.idle); return; }
+
+    if (f.rehitTimer > 0){
+      f.rehitTimer--;
+      if (f.rehitTimer === 0 && f.hitCount < m.maxHits) f.hitDone.clear();
+    }
+    /* Impulses and projectiles fire on the first active frame. */
+    if (f.stateFrame === m.startup){
+      if (m.moveY){ f.vy = m.moveY; f.airborne = true; }
+      if (m.moveX) f.vx = f.facing * m.moveX;
+      if (m.proj) this.spawnProjectile(f, m);
+    }
+    /* Cancel a connected normal into a special or super, the way chains work
+       in the arcade games: only after it touched something. */
+    if (f.cancelOk && m.cancelable && (pressed & BUTTONS) && f.stateFrame >= m.startup){
+      const spec = pickSpecial(f, pressed);
+      if (spec){ startMove(f, spec.move, spec.superMove); Sfx.play(spec.superMove ? "super" : "whiff"); return; }
+    }
+    if (f.stateFrame >= m.total){
+      f.move = null; f.moveId = 0;
+      if (f.airborne) f.setState(S.JUMP, ANIM.jumpFall);
+      else f.setState(S.IDLE, ANIM.idle);
+    }
+  }
+
+  /* -------------------------------------------------------------- physics -- */
+  physics(){
+    for (const f of this.fighters){
+      if (f.airborne){
+        f.vy -= GRAVITY;
+        f.y += f.vy;
+        if (f.y <= 0){
+          f.y = 0; f.vy = 0; f.airborne = false;
+          this.onLand(f);
+        }
+      } else {
+        f.y = 0;
+        /* ground friction: walking overwrites vx anyway, so this only decays
+           knockback and the momentum of rushing specials */
+        if (f.state !== S.WALKF && f.state !== S.WALKB){
+          if (f.vx > 0) f.vx = Math.max(0, f.vx - 46);
+          else if (f.vx < 0) f.vx = Math.min(0, f.vx + 46);
+        }
+      }
+      f.x += f.vx;
+      const half = f.pushHalf;
+      if (f.x < half){ f.x = half; if (f.vx < 0) f.vx = 0; }
+      if (f.x > STAGE_W*FP - half){ f.x = STAGE_W*FP - half; if (f.vx > 0) f.vx = 0; }
+    }
+  }
+  onLand(f){
+    this.fx("dust", f.px, GROUND_Y, { life: 12 });
+    if (f.state === S.HITSTUN || f.state === S.KNOCKDOWN){
+      f.setState(S.KNOCKDOWN, ANIM.down);
+      f.downTimer = 30; f.vx = 0;
+      Sfx.play("thud"); this.shake = Math.max(this.shake, 6);
+    } else if (f.state === S.ATTACK){
+      f.move = null; f.moveId = 0;
+      f.setState(S.LAND, ANIM.land);
+    } else {
+      f.setState(S.LAND, ANIM.land);
+      Sfx.play("land");
+    }
+  }
+  separate(){
+    const [a, b] = this.fighters;
+    if (a.state === S.KNOCKDOWN || b.state === S.KNOCKDOWN) return;
+    const minD = a.pushHalf + b.pushHalf;
+    let d = b.x - a.x;
+    const s = d >= 0 ? 1 : -1;
+    if (Math.abs(d) >= minD) return;
+    const push = minD - Math.abs(d);
+    const halfPush = (push >> 1) + 1;
+    a.x -= s * halfPush; b.x += s * halfPush;
+    for (const f of this.fighters){
+      const half = f.pushHalf;
+      if (f.x < half) f.x = half;
+      if (f.x > STAGE_W*FP - half) f.x = STAGE_W*FP - half;
+    }
+    /* If one fighter is jammed into a wall, the other eats the whole push. */
+    let d2 = b.x - a.x;
+    if (Math.abs(d2) < minD){
+      const short = minD - Math.abs(d2);
+      if (a.x <= a.pushHalf) b.x += s * short;
+      else if (b.x >= STAGE_W*FP - b.pushHalf) a.x -= s * short;
+    }
+  }
+  updateCamera(){
+    const [a, b] = this.fighters;
+    const mid = (a.px + b.px) / 2;
+    let target = clamp(mid - W/2, 0, STAGE_W - W);
+    this.camX += (target - this.camX) * 0.18;
+    if (Math.abs(this.camX - target) < 0.4) this.camX = target;
+  }
+
+  /* ---------------------------------------------------------- projectiles -- */
+  spawnProjectile(f, m){
+    const p = m.proj;
+    const single = p.kind !== "tempest";
+    if (single && f.projCount > 0) return;      /* one fireball at a time */
+    if (single) f.projCount++;
+    this.projectiles.push({
+      owner: f.id, single, kind: p.kind, facing: f.facing,
+      x: f.x + f.facing * Math.round(p.ox * f.scale) * FP,
+      y: Math.round(-p.oy * f.scale) * FP,
+      vx: f.facing * p.vx,
+      w: p.w, h: p.h, dmg: p.dmg, chip: p.chip,
+      hitstun: p.hitstun, blockstun: p.blockstun, pushHit: p.pushHit || 480,
+      hits: p.hits || 1, hitDone: new Set(), rehit: 0, life: 240, t: 0
+    });
+    Sfx.play("fire");
+  }
+  projBox(pr){
+    return { x: pr.x/FP - pr.w/2, y: GROUND_Y - pr.y/FP - pr.h/2, w: pr.w, h: pr.h };
+  }
+  killProjectile(pr, i){
+    if (pr.single) this.fighters[pr.owner].projCount = Math.max(0, this.fighters[pr.owner].projCount - 1);
+    this.projectiles.splice(i, 1);
+  }
+  updateProjectiles(){
+    for (let i = this.projectiles.length - 1; i >= 0; i--){
+      const pr = this.projectiles[i];
+      pr.x += pr.vx; pr.t++;
+      if (pr.rehit > 0 && --pr.rehit === 0) pr.hitDone.clear();
+      const px = pr.x / FP;
+      if (--pr.life <= 0 || px < -30 || px > STAGE_W + 30){ this.killProjectile(pr, i); continue; }
+    }
+    /* Opposing projectiles trade and both disappear — the classic fireball war. */
+    for (let i = this.projectiles.length - 1; i >= 0; i--){
+      for (let j = i - 1; j >= 0; j--){
+        const a = this.projectiles[i], b = this.projectiles[j];
+        if (!a || !b || a.owner === b.owner) continue;
+        if (boxOverlap(this.projBox(a), this.projBox(b))){
+          this.fx("spark", (a.x + b.x)/(2*FP), GROUND_Y - a.y/FP, { life: 14, big: true });
+          Sfx.play("clash");
+          this.killProjectile(a, i); this.killProjectile(b, j);
+          break;
+        }
+      }
+    }
+  }
+
+  /* --------------------------------------------------------------- combat -- */
+  detectHits(){
+    /* melee */
+    for (let i = 0; i < 2; i++){
+      const a = this.fighters[i], d = this.fighters[1-i];
+      if (a.state !== S.ATTACK || !a.move) continue;
+      const hb = a.hitBox();
+      if (!hb || a.hitDone.has(d.id)) continue;
+      if (d.isInvulnerable()) continue;
+      if (this.overlapsFighter(hb, d)) this.resolveHit(a, d, a.move, null);
+    }
+    /* projectiles */
+    for (let i = this.projectiles.length - 1; i >= 0; i--){
+      const pr = this.projectiles[i];
+      const d = this.fighters[1 - pr.owner];
+      if (pr.hitDone.has(d.id) || d.isInvulnerable()) continue;
+      if (this.overlapsFighter(this.projBox(pr), d)){
+        const fake = { level:"mid", dmg:pr.dmg, chip:pr.chip, hitstun:pr.hitstun,
+                       blockstun:pr.blockstun, pushHit:pr.pushHit, pushBlock:300,
+                       launch:0, knockdown:false, type:"projectile",
+                       meterHit:20, meterBlock:8, sfx:"hit" };
+        this.resolveHit(this.fighters[pr.owner], d, fake, pr);
+        pr.hitDone.add(d.id);
+        if (--pr.hits <= 0) this.killProjectile(pr, i);
+        else pr.rehit = 6;
+      }
+    }
+  }
+  overlapsFighter(box, f){
+    for (const hb of f.hurtBoxes()) if (boxOverlap(box, hb)) return true;
+    return false;
+  }
+  scaledDamage(base, comboHits){
+    const scale = comboHits <= 1 ? 100 : comboHits === 2 ? 88 : comboHits === 3 ? 74 : comboHits === 4 ? 60 : 45;
+    return Math.max(1, Math.floor(base * scale / 100));
+  }
+  resolveHit(a, d, m, pr){
+    const dir = pr ? sign(pr.vx) : a.facing;
+    const cx = (a.px + d.px) / 2;
+    const cy = GROUND_Y - (d.py + 44 * d.scale);
+
+    /* Throws ignore guard entirely, but cannot catch an airborne or downed
+       opponent — the standard rule, and what makes them a read, not a mash. */
+    if (m.level === "throw"){
+      if (d.airborne || d.state === S.KNOCKDOWN || d.state === S.THROWN) return;
+      a.hitDone.add(d.id); a.hitCount++;
+      const dmg = this.scaledDamage(m.dmg, 1);
+      d.hp = Math.max(0, d.hp - dmg);
+      d.setState(S.THROWN, ANIM.fall);
+      d.airborne = true; d.vy = 820; d.vx = -a.facing * 620;
+      d.facing = -a.facing; d.flash = 6;
+      d.comboHits = 0; a.comboShow = 0; a.comboShowT = 0;
+      a.addMeter(m.meterHit); d.addMeter(14);
+      this.hitstop = 12; this.shake = 8;
+      this.fx("spark", cx, cy, { big:true, life:16 });
+      Sfx.play("throw");
+      this.afterDamage(d);
+      return;
+    }
+
+    const canBlock =
+      d.guarding && !d.airborne &&
+      d.state !== S.ATTACK && d.state !== S.HITSTUN && d.state !== S.KNOCKDOWN &&
+      (m.level === "mid" ||
+       (m.level === "low"      &&  d.crouching) ||
+       (m.level === "overhead" && !d.crouching));
+
+    if (!pr){ a.hitDone.add(d.id); a.hitCount++; a.rehitTimer = m.rehit || 0; }
+    a.cancelOk = true;
+
+    if (canBlock){
+      const chip = m.chip && (m.type === "special" || m.type === "super" || m.type === "projectile")
+        ? Math.max(1, m.chip) : 0;
+      if (chip) d.hp = Math.max(0, d.hp - chip);
+      d.setState(S.BLOCKSTUN, d.crouching ? ANIM.blockLo : ANIM.blockHi);
+      d.blockstun = m.blockstun;
+      d.vx = -dir * (m.pushBlock || 320);
+      a.vx = a.airborne ? a.vx : a.facing * -Math.round((m.pushBlock || 320) * 0.35);
+      a.addMeter(m.meterBlock); d.addMeter(Math.round(m.meterBlock * 1.4));
+      this.hitstop = 6;
+      this.fx("guard", d.px + d.facing * 16, cy, { life: 12 });
+      Sfx.play("block");
+      this.afterDamage(d);
+      return;
+    }
+
+    /* clean hit */
+    d.comboTimer = 60;
+    d.comboHits = Math.min(d.comboHits + 1, 9);
+    a.comboShow = d.comboHits; a.comboShowT = 74;
+    const dmg = this.scaledDamage(m.dmg, d.comboHits);
+    d.hp = Math.max(0, d.hp - dmg);
+    d.flash = 5;
+    d.hitstun = m.hitstun;
+    a.addMeter(m.meterHit); d.addMeter(Math.round(m.meterHit * 0.5));
+
+    const heavy = m.dmg >= 15 || m.knockdown;
+    this.hitstop = heavy ? 11 : 6;
+    this.shake = Math.max(this.shake, heavy ? 6 : 3);
+
+    if (m.knockdown || m.launch || d.airborne){
+      d.setState(S.KNOCKDOWN, d.airborne ? ANIM.hitAir : ANIM.fall);
+      d.airborne = true;
+      d.vy = Math.max(m.launch || 0, 720);
+      d.vx = -dir * (m.pushHit || 600);
+    } else {
+      const low = m.level === "low";
+      d.setState(S.HITSTUN, low ? ANIM.hitLo : ANIM.hitHi);
+      d.vx = -dir * (m.pushHit || 520);
+    }
+    this.fx("spark", cx, cy, { big: heavy, life: heavy ? 16 : 12 });
+    Sfx.play(heavy ? "heavy" : (m.sfx === "kick" ? "kick" : "hit"));
+    this.afterDamage(d);
+  }
+  afterDamage(d){
+    if (d.hp <= 0 && this.phase === PH.FIGHT) this.triggerKO(1 - d.id);
+  }
+
+  /* ----------------------------------------------------------- round flow -- */
+  triggerKO(winner){
+    this.phase = PH.KO; this.phaseTimer = 0; this.koSide = winner;
+    this.hitstop = 16; this.shake = 12;
+    const loser = this.fighters[1 - winner];
+    loser.setState(S.KNOCKDOWN, ANIM.fall);
+    loser.airborne = true; loser.vy = 880; loser.vx = -this.fighters[winner].facing * 700;
+    this.setAnnounce("K.O.", 120);
+    Sfx.play("ko");
+  }
+  checkRoundEnd(){
+    if (this.timer <= 0){
+      const [a, b] = this.fighters;
+      const pa = a.hp / a.maxHp, pb = b.hp / b.maxHp;
+      this.phase = PH.KO; this.phaseTimer = 0;
+      this.koSide = pa === pb ? -1 : (pa > pb ? 0 : 1);
+      if (this.koSide >= 0){
+        const loser = this.fighters[1 - this.koSide];
+        loser.setState(S.KNOCKDOWN, ANIM.fall);
+        loser.airborne = true; loser.vy = 700;
+      }
+      this.setAnnounce("TIME UP", 120);
+      Sfx.play("ko");
+    }
+  }
+  finishRound(){
+    const w = this.koSide;
+    if (w >= 0){
+      const winner = this.fighters[w];
+      winner.wins++;
+      winner.setState(S.WIN, ANIM.win);
+      const perfect = winner.hp === winner.maxHp;
+      if (winner.wins >= WINS_NEEDED){
+        this.matchOver = true; this.matchWinner = w;
+        this.phase = PH.MATCHEND; this.phaseTimer = 0;
+        this.setAnnounce(winner.ch.name.toUpperCase() + " WINS", 600);
+        Sfx.play("win");
+        return;
+      }
+      this.setAnnounce(perfect ? "PERFECT" : winner.ch.name.toUpperCase() + " WINS", 140);
+    } else {
+      this.setAnnounce("DRAW", 140);
+    }
+    /* Both fighters at two wins each would be a draw game; capped at 3 rounds. */
+    this.round++;
+    if (this.round > 3){
+      this.matchOver = true;
+      this.matchWinner = this.fighters[0].wins === this.fighters[1].wins ? -1 :
+                         (this.fighters[0].wins > this.fighters[1].wins ? 0 : 1);
+      this.phase = PH.MATCHEND; this.phaseTimer = 0;
+      this.setAnnounce(this.matchWinner < 0 ? "DRAW GAME" :
+        this.fighters[this.matchWinner].ch.name.toUpperCase() + " WINS", 600);
+      return;
+    }
+    this.phase = PH.ROUNDEND; this.phaseTimer = 0;
+  }
+
+  updateEffects(){
+    for (let i = this.effects.length - 1; i >= 0; i--){
+      const e = this.effects[i];
+      if (++e.t >= e.life) this.effects.splice(i, 1);
+    }
+  }
+}
+
+/* ============================================================================
+   SOUND
+   ----------------------------------------------------------------------------
+   Everything is synthesised with WebAudio — no audio files, so the page stays
+   a single self-contained document.
+   ========================================================================== */
+
+const Sfx = {
+  ctx:null, master:null, muted:false, noise:null,
+  unlock(){
+    if (this.ctx){ if (this.ctx.state === "suspended") this.ctx.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    this.ctx = new AC();
+    this.master = this.ctx.createGain();
+    this.master.gain.value = 0.32;
+    this.master.connect(this.ctx.destination);
+    const len = this.ctx.sampleRate * 0.5;
+    this.noise = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const data = this.noise.getChannelData(0);
+    let seed = 22222;
+    for (let i = 0; i < len; i++){ seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; data[i] = (seed / 2147483648) - 1; }
+  },
+  tone(freq, dur, type, vol, slideTo){
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+    o.type = type || "square"; o.frequency.setValueAtTime(freq, t);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(20, slideTo), t + dur);
+    g.gain.setValueAtTime(vol == null ? 0.3 : vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g); g.connect(this.master);
+    o.start(t); o.stop(t + dur + 0.02);
+  },
+  burst(dur, vol, lp){
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource(); src.buffer = this.noise;
+    const g = this.ctx.createGain(), f = this.ctx.createBiquadFilter();
+    f.type = "lowpass"; f.frequency.setValueAtTime(lp || 2600, t);
+    f.frequency.exponentialRampToValueAtTime(Math.max(120, (lp||2600) * 0.25), t + dur);
+    g.gain.setValueAtTime(vol == null ? 0.3 : vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(f); f.connect(g); g.connect(this.master);
+    src.start(t); src.stop(t + dur + 0.02);
+  },
+  play(name){
+    if (!this.ctx || this.muted) return;
+    switch (name){
+      case "whiff":  this.burst(0.07, 0.10, 2200); break;
+      case "hit":    this.burst(0.09, 0.34, 2000); this.tone(190, 0.07, "square", 0.16, 90); break;
+      case "kick":   this.burst(0.10, 0.32, 1500); this.tone(150, 0.08, "square", 0.16, 70); break;
+      case "heavy":  this.burst(0.17, 0.46, 1100); this.tone(110, 0.14, "square", 0.24, 45); break;
+      case "sweep":  this.burst(0.13, 0.34, 900);  break;
+      case "block":  this.burst(0.07, 0.24, 5200); this.tone(760, 0.05, "square", 0.10, 520); break;
+      case "fire":   this.tone(340, 0.24, "sawtooth", 0.20, 900); this.burst(0.20, 0.14, 3200); break;
+      case "clash":  this.tone(880, 0.20, "square", 0.22, 220); this.burst(0.16, 0.24, 5000); break;
+      case "jump":   this.tone(260, 0.10, "square", 0.11, 480); break;
+      case "land":   this.burst(0.06, 0.14, 900); break;
+      case "thud":   this.burst(0.22, 0.42, 620); this.tone(70, 0.20, "sine", 0.30, 40); break;
+      case "throw":  this.burst(0.20, 0.40, 800); this.tone(150, 0.18, "square", 0.24, 60); break;
+      case "super":  this.tone(220, 0.5, "sawtooth", 0.22, 1400); this.burst(0.5, 0.16, 4000); break;
+      case "ko":     this.tone(300, 0.7, "square", 0.28, 60); this.burst(0.5, 0.24, 900); break;
+      case "win":    [523,659,784,1047].forEach((f,i)=>setTimeout(()=>this.tone(f,0.20,"square",0.20),i*110)); break;
+      case "select": this.tone(700, 0.05, "square", 0.16, 1100); break;
+      case "round":  this.tone(440, 0.16, "square", 0.20, 660); break;
+    }
+  },
+  toggleMute(){ this.muted = !this.muted; return this.muted; }
+};
+
+/* ============================================================================
+   RENDERING
+   ========================================================================== */
+
+const screen = document.getElementById("screen");
+const sctx = screen.getContext("2d");
+sctx.imageSmoothingEnabled = false;
+
+/* Health bars lag behind real damage, so a big combo reads as one long
+   drain rather than an instant jump. Purely presentational. */
+const hud = [ { trail:1, hp:1 }, { trail:1, hp:1 } ];
+
+function drawBar(ctx, x, y, w, h, frac, trail, flip, color){
+  ctx.fillStyle = "#14141f"; ctx.fillRect(x-2, y-2, w+4, h+4);
+  ctx.fillStyle = "#2c2c3c"; ctx.fillRect(x, y, w, h);
+  const tw = Math.round(w * clamp(trail,0,1)), fw = Math.round(w * clamp(frac,0,1));
+  const tx = flip ? x + w - tw : x, fx = flip ? x + w - fw : x;
+  ctx.fillStyle = "#ffcf5c"; ctx.fillRect(tx, y, tw, h);
+  ctx.fillStyle = color;      ctx.fillRect(fx, y, fw, h);
+  ctx.fillStyle = "rgba(255,255,255,.28)"; ctx.fillRect(fx, y, fw, 2);
+  ctx.fillStyle = "rgba(0,0,0,.28)";       ctx.fillRect(fx, y + h - 2, fw, 2);
+}
+
+function drawEffect(ctx, e, camX){
+  const x = Math.round(e.x - camX), y = Math.round(e.y), p = e.t / e.life;
+  if (e.type === "spark"){
+    const r = (e.big ? 15 : 9) * (0.4 + p * 1.5);
+    const cols = ["#ffffff","#ffe98a","#ffb03a","#ff6a2a"];
+    const c = cols[Math.min(3, Math.floor(p * 4))];
+    ctx.fillStyle = c;
+    for (let i = 0; i < 8; i++){
+      const a = i * Math.PI / 4;
+      const px = Math.round(x + Math.cos(a) * r), py = Math.round(y + Math.sin(a) * r);
+      const s = e.big ? 4 : 3;
+      ctx.fillRect(px - (s>>1), py - (s>>1), s, s);
+    }
+    if (p < 0.5){ ctx.fillStyle = "#fff"; const s = e.big ? 10 : 6; ctx.fillRect(x - (s>>1), y - (s>>1), s, s); }
+  } else if (e.type === "guard"){
+    ctx.fillStyle = p < 0.5 ? "#bfe9ff" : "#5aa8e0";
+    const r = 8 + p * 10;
+    for (let i = -2; i <= 2; i++){
+      const a = i * 0.35;
+      ctx.fillRect(Math.round(x + Math.cos(a) * r), Math.round(y + Math.sin(a) * r * 1.6), 3, 3);
+    }
+  } else if (e.type === "dust"){
+    ctx.fillStyle = "rgba(220,215,200," + (1 - p).toFixed(2) + ")";
+    const r = 3 + p * 12;
+    for (const s of [-1, 1]){
+      ctx.fillRect(Math.round(x + s * r), Math.round(y - 2 - p * 3), 3, 2);
+      ctx.fillRect(Math.round(x + s * r * 0.6), Math.round(y - 4 - p * 5), 2, 2);
+    }
+  }
+}
+
+function drawProjectile(ctx, pr, camX, frame){
+  const x = Math.round(pr.x/FP - camX), y = Math.round(GROUND_Y - pr.y/FP);
+  const ph = (frame >> 2) % 3;
+  if (pr.kind === "bolt"){
+    ctx.fillStyle = "#14141f"; ctx.fillRect(x-10, y-8, 20, 16);
+    ctx.fillStyle = "#2e6ad0"; ctx.fillRect(x-9, y-7, 18, 14);
+    ctx.fillStyle = "#7fd8ff"; ctx.fillRect(x-6, y-5, 12, 10);
+    ctx.fillStyle = "#eaffff"; ctx.fillRect(x-3+ph-1, y-3, 6, 6);
+    ctx.fillStyle = "rgba(127,216,255,.5)";
+    ctx.fillRect(x - pr.facing*16, y-2, 10, 4);
+  } else if (pr.kind === "lance"){
+    ctx.fillStyle = "#14141f"; ctx.fillRect(x-12, y-6, 24, 12);
+    ctx.fillStyle = "#7d3ce0"; ctx.fillRect(x-11, y-5, 22, 10);
+    ctx.fillStyle = "#25f0d0"; ctx.fillRect(x-8, y-3, 16, 6);
+    ctx.fillStyle = "#eaffff"; ctx.fillRect(x + pr.facing*4, y-2, 6, 4);
+    ctx.fillStyle = "rgba(37,240,208,.45)"; ctx.fillRect(x - pr.facing*22, y-1, 14, 2);
+  } else { /* tempest */
+    for (let i = 3; i >= 0; i--){
+      const s = 8 + i * 5 + (ph*2);
+      ctx.fillStyle = ["#eaffff","#a8e8ff","#4da2ff","#1c3fb0"][i];
+      ctx.fillRect(x - s, y - s + 2, s*2, s*2 - 4);
+    }
+  }
+}
+
+function drawFighter(ctx, f, camX, opp){
+  const pose = f.pose();
+  const tint = f.flash > 0 ? "flash" : null;
+  const spr = getSprite(f.ch, pose, f.facing, tint);
+  const x = Math.round(f.px - camX) - SPRITE_OX;
+  const y = Math.round(GROUND_Y - f.py) - SPRITE_OY;
+  /* contact shadow, squashed by height off the floor */
+  const alt = f.py;
+  const sw = Math.max(10, Math.round(30 * f.scale - alt * 0.16));
+  ctx.fillStyle = "rgba(0,0,0,.34)";
+  ctx.fillRect(Math.round(f.px - camX) - (sw>>1), GROUND_Y - 2, sw, 4);
+  ctx.drawImage(spr, x, y);
+  /* super-meter-full aura */
+  if (f.meter >= METER_MAX && f.state !== S.KNOCKDOWN){
+    ctx.globalAlpha = 0.30 + 0.14 * Math.sin(f.animFrame * 0.3);
+    ctx.drawImage(getSprite(f.ch, pose, f.facing, "flash"), x, y - 1);
+    ctx.globalAlpha = 1;
+  }
+  void opp;
+}
+
+function drawHUD(ctx, g){
+  const [a, b] = g.fighters;
+  const barW = 150, barH = 11;
+  for (let i = 0; i < 2; i++){
+    const f = g.fighters[i];
+    const target = f.hp / f.maxHp;
+    hud[i].hp = target;
+    if (hud[i].trail > target) hud[i].trail = Math.max(target, hud[i].trail - 0.006);
+    else hud[i].trail = target;
+    const x = i === 0 ? 12 : W - 12 - barW;
+    drawBar(ctx, x, 12, barW, barH, target, hud[i].trail, i === 1, i === 0 ? "#e04a4a" : "#4a9ae0");
+    drawText(ctx, f.ch.name, i === 0 ? x : x + barW - textWidth(f.ch.name), 27, "#e8e6f0", 1);
+    /* round pips */
+    for (let r = 0; r < WINS_NEEDED; r++){
+      const px = i === 0 ? x + r*9 : x + barW - 6 - r*9;
+      ctx.fillStyle = "#14141f"; ctx.fillRect(px-1, 36, 8, 8);
+      ctx.fillStyle = r < f.wins ? "#ffcc33" : "#33334a"; ctx.fillRect(px, 37, 6, 6);
+    }
+    /* super meter */
+    const mx = i === 0 ? 12 : W - 12 - 96;
+    const frac = f.meter / METER_MAX;
+    ctx.fillStyle = "#14141f"; ctx.fillRect(mx-1, H-16, 98, 9);
+    ctx.fillStyle = "#22223a"; ctx.fillRect(mx, H-15, 96, 7);
+    const mw = Math.round(96 * frac);
+    ctx.fillStyle = frac >= 1 ? (((g.frame>>2)&1) ? "#fff3a0" : "#ffcc33") : f.ch.pal.glow;
+    ctx.fillRect(i === 0 ? mx : mx + 96 - mw, H-15, mw, 7);
+    drawText(ctx, frac >= 1 ? "SUPER" : "METER", i === 0 ? mx : mx + 96 - textWidth("METER"), H-26,
+             frac >= 1 ? "#ffcc33" : "#6a6a86", 1);
+  }
+  /* timer */
+  const secs = Math.max(0, Math.ceil(g.timer / 60));
+  const ts = (secs < 10 ? "0" : "") + secs;
+  ctx.fillStyle = "#14141f"; ctx.fillRect(W/2 - 22, 8, 44, 26);
+  ctx.fillStyle = "#22223a"; ctx.fillRect(W/2 - 20, 10, 40, 22);
+  drawTextC(ctx, ts, W/2, 13, secs <= 10 ? "#ff5a5a" : "#ffcc33", 2, 2);
+
+  /* combo counter */
+  for (let i = 0; i < 2; i++){
+    const f = g.fighters[i];
+    if (f.comboShow >= 2 && f.comboShowT > 0){
+      const x = i === 0 ? 16 : W - 90;
+      drawTextShadow(ctx, f.comboShow + " HIT", x, 52, "#ffcc33", "#14141f", 1);
+    }
+  }
+  void a; void b;
+}
+
+function render(g){
+  const st = stageFor(g.stage);
+  const shakeX = g.shake > 0 ? ((g.frame % 2) ? g.shake : -g.shake) >> 1 : 0;
+  const shakeY = g.shake > 0 ? ((g.frame % 3) ? 1 : -1) * (g.shake >> 2) : 0;
+  const camX = g.camX;
+
+  sctx.save();
+  sctx.translate(shakeX, shakeY);
+  sctx.fillStyle = "#05060f"; sctx.fillRect(-8, -8, W+16, H+16);
+  sctx.drawImage(st.far,  Math.round(-camX * 0.25), 0);
+  sctx.drawImage(st.near, Math.round(-camX * 0.55), 0);
+  sctx.drawImage(st.floor, Math.round(-camX), GROUND_Y - 2);
+
+  const order = g.fighters[0].state === S.ATTACK ? [1,0] : [0,1];
+  for (const i of order) drawFighter(sctx, g.fighters[i], camX, g.fighters[1-i]);
+  for (const pr of g.projectiles) drawProjectile(sctx, pr, camX, g.frame);
+  for (const e of g.effects) drawEffect(sctx, e, camX);
+  sctx.restore();
+
+  drawHUD(sctx, g);
+
+  if (g.announceT > 0 && g.announce){
+    const t = g.announce;
+    const sc = t.length > 9 ? 2 : 3;
+    const y = 76;
+    drawTextC(sctx, t, W/2 + 2, y + 2, "#000", sc, 2);
+    drawTextC(sctx, t, W/2, y, "#ffcc33", sc, 2);
+  }
+}
+
+/* ============================================================================
+   CPU OPPONENT
+   ----------------------------------------------------------------------------
+   The AI does not reach into the simulation; it only produces the same input
+   bitmask a human would, one frame at a time. Motion inputs are queued out
+   frame by frame, so the CPU has to execute a quarter-circle just like you do.
+   ========================================================================== */
+
+const AI_LEVELS = {
+  easy:   { react: 16, block: 35, aggro: 26, special: 12, antiAir: 20 },
+  normal: { react:  9, block: 62, aggro: 44, special: 30, antiAir: 45 },
+  hard:   { react:  4, block: 84, aggro: 62, special: 52, antiAir: 74 }
+};
+
+class AI {
+  constructor(level, seed){
+    this.cfg = AI_LEVELS[level] || AI_LEVELS.normal;
+    this.rng = makeRNG(seed || 12345);
+    this.queue = [];
+    this.cool = 0;
+  }
+  roll(n){ return this.rng() % n; }
+  /* Queue a motion, holding each step for a couple of frames so the game's
+     own leniency window sees it. */
+  push(masks, hold){
+    hold = hold || 2;
+    for (const m of masks) for (let i = 0; i < hold; i++) this.queue.push(m);
+    this.queue.push(0);
+  }
+  qcf(btn, fwd){ this.push([IN_DOWN, IN_DOWN|fwd, fwd, fwd|btn]); }
+  qcb(btn, back){ this.push([IN_DOWN, IN_DOWN|back, back, back|btn]); }
+  dp(btn, fwd){ this.push([fwd, IN_DOWN, IN_DOWN|fwd, IN_DOWN|fwd|btn]); }
+  press(btn, hold){ this.push([btn], hold || 3); }
+
+  think(me, opp, g){
+    if (this.queue.length) return this.queue.shift();
+    if (g.phase !== PH.FIGHT) return 0;
+    if (me.state === S.HITSTUN || me.state === S.KNOCKDOWN || me.state === S.THROWN) return 0;
+    if (this.cool > 0){ this.cool--; return this.holdMask || 0; }
+
+    const c = this.cfg;
+    const dist = Math.abs(me.px - opp.px);
+    const fwd  = me.facing > 0 ? IN_RIGHT : IN_LEFT;
+    const back = me.facing > 0 ? IN_LEFT  : IN_RIGHT;
+    this.holdMask = 0;
+
+    /* incoming projectile */
+    for (const pr of g.projectiles){
+      if (pr.owner === me.id) continue;
+      const toward = (pr.x - me.x) * pr.vx < 0;
+      const d = Math.abs(pr.x - me.x) / FP;
+      if (toward && d < 110){
+        if (this.roll(100) < c.block){ this.cool = 14; this.holdMask = back|IN_DOWN; return back|IN_DOWN; }
+        this.push([IN_UP|fwd], 3); this.cool = 4; return IN_UP|fwd;
+      }
+    }
+    /* anti-air: they are above and coming down at us */
+    if (opp.airborne && dist < 70 && opp.py > 20 && this.roll(100) < c.antiAir){
+      if (me.ch.specials.some(s => s.key === "rise")) this.dp(IN_HP, fwd);
+      else if (me.ch.specials.some(s => s.key === "fang")) this.push([IN_DOWN,IN_DOWN,IN_DOWN,IN_UP|IN_HK], 6);
+      else this.push([IN_DOWN|IN_HP], 4);
+      this.cool = 8; return this.queue.shift();
+    }
+    /* respect an attack in progress */
+    if (opp.state === S.ATTACK && dist < 78 && this.roll(100) < c.block){
+      this.cool = c.react + 6;
+      this.holdMask = back | (this.roll(2) ? IN_DOWN : 0);
+      return this.holdMask;
+    }
+    /* super when it is available and they are close */
+    if (me.meter >= METER_MAX && dist < 90 && this.roll(100) < c.special + 20){
+      const btn = me.ch.super.key === "circuit" ? IN_MK : IN_MP;
+      this.push([IN_DOWN, IN_DOWN|fwd, fwd, IN_DOWN, IN_DOWN|fwd, fwd, fwd|btn], 2);
+      this.cool = 10; return this.queue.shift();
+    }
+
+    if (dist < 44){
+      const r = this.roll(100);
+      if (r < 14){ this.push([IN_LP|IN_LK], 3); }                        /* throw */
+      else if (r < 30) this.press(IN_DOWN|IN_LK, 3);
+      else if (r < 50) this.press(IN_MP, 3);
+      else if (r < 66) this.press(IN_DOWN|IN_HK, 4);
+      else if (r < 66 + c.special){
+        const s = me.ch.specials[this.roll(me.ch.specials.length)];
+        if (s.key === "rise") this.dp(IN_MP, fwd);
+        else if (s.key === "clasp") this.push([back, IN_DOWN|back, IN_DOWN, IN_DOWN|fwd, fwd, fwd|IN_HP], 2);
+        else if (s.charge === "back"){ this.push([back,back,back,back,back,back,back,back], 8); this.push([fwd|IN_MP], 3); }
+        else if (s.charge === "down"){ this.push([IN_DOWN], 44); this.push([IN_UP|IN_MK], 3); }
+        else if (s.key === "heel" || s.key === "anvil") this.qcb(IN_MK, back);
+        else this.qcf(s.key === "razor" ? IN_MK : IN_MP, fwd);
+      }
+      else { this.cool = c.react; this.holdMask = back; return back; }
+      this.cool = 6;
+      return this.queue.length ? this.queue.shift() : 0;
+    }
+    if (dist < 96){
+      const r = this.roll(100);
+      if (r < c.aggro){ this.cool = 10; this.holdMask = fwd; return fwd; }
+      if (r < c.aggro + 18){ this.press(IN_DOWN|IN_MK, 4); this.cool = 6; return this.queue.shift(); }
+      if (r < c.aggro + 30){ this.push([IN_UP|fwd], 3); this.cool = 6; return IN_UP|fwd; }
+      this.cool = 12; this.holdMask = back; return back;
+    }
+    /* long range */
+    const r = this.roll(100);
+    if (r < c.special){
+      const s = me.ch.specials[0];
+      if (s.charge === "back"){ this.push([back,back,back,back,back,back,back,back], 8); this.push([fwd|IN_HP], 3); }
+      else this.qcf(IN_HP, fwd);
+      this.cool = 8;
+      return this.queue.length ? this.queue.shift() : 0;
+    }
+    this.cool = 12; this.holdMask = fwd;
+    return fwd;
+  }
+}
+
+/* ============================================================================
+   NETPLAY — deterministic lockstep over a WebRTC data channel
+   ----------------------------------------------------------------------------
+   Neither peer sends game state. Each sends only its own input for a frame a
+   few ticks in the future; a frame is simulated once both inputs for it are
+   in hand. That keeps bandwidth at a few bytes per frame and guarantees both
+   machines see exactly the same match — provided the simulation is
+   deterministic, which is why it is integer-only. A rolling checksum catches
+   it immediately if that ever stops being true.
+
+   The tradeoff versus rollback netcode: your own inputs take NET_DELAY frames
+   to appear. At 3 frames that is 50ms, which is unnoticeable at close range
+   and honest at long range.
+   ========================================================================== */
+
+const Net = {
+  peer:null, conn:null, isHost:false, code:"", state:"idle",
+  localInputs:new Map(), remoteInputs:new Map(),
+  simFrame:0, sendFrame:0, mySide:0,
+  remoteChar:null, myChar:null, seed:0,
+  stallFrames:0, desync:false, lastPing:0, ping:0,
+  onStatus:null, onStart:null, onEnd:null, onRematch:null,
+
+  makeCode(){
+    const abc = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let s = "";
+    const buf = new Uint8Array(5);
+    (window.crypto || {}).getRandomValues
+      ? crypto.getRandomValues(buf)
+      : buf.forEach((_, i) => buf[i] = Math.floor(Math.random()*256));
+    for (let i = 0; i < 5; i++) s += abc[buf[i] % abc.length];
+    return s;
+  },
+  status(msg, kind){ if (this.onStatus) this.onStatus(msg, kind); },
+
+  newPeer(id){
+    if (typeof Peer === "undefined"){
+      this.status("Could not load the peer-to-peer library. Check your connection, or play offline.", "err");
+      return null;
+    }
+    const opts = { debug:0, config:{ iceServers: ICE_SERVERS } };
+    if (PEER_SERVER_CONFIG) Object.assign(opts, PEER_SERVER_CONFIG);
+    return id ? new Peer(id, opts) : new Peer(opts);
+  },
+
+  host(charKey){
+    this.reset();
+    this.isHost = true; this.myChar = charKey;
+    this.code = this.makeCode();
+    this.seed = (Date.now() ^ (Math.random()*0xffffffff)) >>> 0;
+    this.state = "hosting";
+    this.status("Opening room…");
+    const p = this.newPeer(ROOM_PREFIX + this.code);
+    if (!p){ this.code = ""; return; }
+    this.peer = p;
+    p.on("open", () => this.status("Room open. Give your friend the code."));
+    p.on("error", e => this.handlePeerError(e));
+    p.on("connection", c => {
+      if (this.conn){ c.close(); return; }
+      this.conn = c;
+      this.wire(c);
+    });
+  },
+  join(code, charKey){
+    this.reset();
+    this.isHost = false; this.myChar = charKey;
+    this.code = String(code || "").toUpperCase().trim();
+    this.state = "joining";
+    this.status("Connecting to " + this.code + "…");
+    const p = this.newPeer(null);
+    if (!p) return;
+    this.peer = p;
+    p.on("error", e => this.handlePeerError(e));
+    p.on("open", () => {
+      const c = p.connect(ROOM_PREFIX + this.code, { reliable:true, serialization:"json" });
+      this.conn = c;
+      this.wire(c);
+      setTimeout(() => {
+        if (this.state === "joining") this.status("No answer. Check the code, or ask them to re-open the room.", "err");
+      }, 12000);
+    });
+  },
+  handlePeerError(e){
+    const t = (e && e.type) || "";
+    if (t === "peer-unavailable") this.status("No room with that code. Check the letters and try again.", "err");
+    else if (t === "unavailable-id") this.status("That room code is taken. Go back and host again.", "err");
+    else if (t === "network" || t === "server-error") this.status("Cannot reach the matchmaking server. Try again in a moment.", "err");
+    else if (t === "browser-incompatible") this.status("This browser does not support peer-to-peer play.", "err");
+    else this.status("Connection problem" + (t ? " (" + t + ")" : "") + ".", "err");
+  },
+  wire(c){
+    c.on("open", () => {
+      this.state = "handshake";
+      this.status("Connected. Syncing…", "ok");
+      this.send({ t:"hello", char:this.myChar, ver:GAME_VERSION });
+      this.pingTimer = setInterval(() => {
+        this.lastPing = performance.now();
+        this.send({ t:"ping" });
+      }, 2000);
+    });
+    c.on("data", d => this.onData(d));
+    c.on("close", () => this.dropped("Opponent disconnected."));
+    c.on("error", () => this.dropped("Connection lost."));
+  },
+  onData(d){
+    if (!d || typeof d !== "object") return;
+    switch (d.t){
+      case "hello":
+        if (this.versionClash(d.ver)) break;
+        this.remoteChar = d.char;
+        if (this.isHost) this.tryStart();
+        break;
+      case "badver":
+        this.reportVersionClash(d.ver);
+        break;
+      case "start":
+        if (this.versionClash(d.ver)) break;
+        this.seed = d.seed >>> 0;
+        this.remoteChar = d.hostChar;
+        this.mySide = 1;
+        this.beginMatch([d.hostChar, this.myChar]);
+        break;
+      case "i":
+        if ((d.s >>> 0) !== this.seed) break;   /* stale packet from a previous match */
+        this.remoteInputs.set(d.f, d.m|0);
+        break;
+      case "c":
+        if ((d.s >>> 0) !== this.seed) break;
+        this.checkSum(d.f, d.h >>> 0);
+        break;
+      case "ping": this.send({ t:"pong" }); break;
+      case "pong": this.ping = Math.round(performance.now() - this.lastPing); break;
+      case "rematch": if (this.onRematch) this.onRematch(d); break;
+      case "bye": this.dropped("Opponent left."); break;
+    }
+  },
+  tryStart(){
+    if (!this.isHost || !this.remoteChar || this.state === "playing") return;
+    this.mySide = 0;
+    this.send({ t:"start", seed:this.seed, hostChar:this.myChar, ver:GAME_VERSION });
+    this.beginMatch([this.myChar, this.remoteChar]);
+  },
+  /* Host only: roll a fresh seed and start another set. */
+  restart(myChar){
+    if (!this.isHost || !this.conn || !this.conn.open) return;
+    this.myChar = myChar || this.myChar;
+    this.seed = (Date.now() ^ (Math.random()*0xffffffff)) >>> 0;
+    this.mySide = 0;
+    this.send({ t:"start", seed:this.seed, hostChar:this.myChar, ver:GAME_VERSION });
+    this.beginMatch([this.myChar, this.remoteChar]);
+  },
+  /* Refuse the match rather than let two different builds drift apart. */
+  versionClash(theirs){
+    if (theirs === GAME_VERSION) return false;
+    this.send({ t:"badver", ver:GAME_VERSION });
+    this.reportVersionClash(theirs);
+    return true;
+  },
+  reportVersionClash(theirs){
+    this.status("Different game versions — you are on " + GAME_VERSION +
+                ", they are on " + (theirs || "an older build") +
+                ". Both of you refresh the page, then try again.", "err");
+    this.state = "dead";
+    clearInterval(this.pingTimer);
+    try { if (this.conn) this.conn.close(); } catch(e){}
+  },
+  beginMatch(charKeys){
+    this.localInputs.clear(); this.remoteInputs.clear();
+    for (let i = 0; i < NET_DELAY; i++){ this.localInputs.set(i, 0); this.remoteInputs.set(i, 0); }
+    this.simFrame = 0; this.sendFrame = NET_DELAY;
+    this.stallFrames = 0; this.desync = false;
+    this.state = "playing";
+    this.pendingChecks = new Map();
+    if (this.onStart) this.onStart(charKeys, this.seed, this.mySide);
+  },
+  send(o){ try { if (this.conn && this.conn.open) this.conn.send(o); } catch(e){ /* channel closing */ } },
+
+  /* Called once per simulated frame with our own input; returns the pair of
+     inputs to step with, or null if we are still waiting on the opponent. */
+  exchange(localMask, game){
+    if (this.state !== "playing") return null;
+    if (!this.localInputs.has(this.sendFrame)){
+      this.localInputs.set(this.sendFrame, localMask);
+      this.send({ t:"i", f:this.sendFrame, m:localMask, s:this.seed });
+      this.sendFrame++;
+    }
+    const f = this.simFrame;
+    if (!this.remoteInputs.has(f)){ this.stallFrames++; return null; }
+    this.stallFrames = 0;
+    const mine = this.localInputs.get(f) | 0, theirs = this.remoteInputs.get(f) | 0;
+    this.simFrame++;
+    /* prune */
+    if (f > 240){ this.localInputs.delete(f - 240); this.remoteInputs.delete(f - 240); }
+    /* periodic desync check */
+    if (game && f % 60 === 0){
+      const h = hashState(game);
+      this.pendingChecks.set(f, h);
+      this.send({ t:"c", f, h, s:this.seed });
+      if (this.pendingChecks.size > 20) this.pendingChecks.delete(this.pendingChecks.keys().next().value);
+    }
+    return this.mySide === 0 ? [mine, theirs] : [theirs, mine];
+  },
+  checkSum(f, h){
+    if (!this.pendingChecks) return;
+    if (!this.pendingChecks.has(f)) { this.pendingLate = this.pendingLate || new Map(); this.pendingLate.set(f, h); return; }
+    if (this.pendingChecks.get(f) !== h && !this.desync){
+      this.desync = true;
+      this.status("Desync detected — the match is no longer in sync.", "err");
+    }
+  },
+  dropped(msg){
+    if (this.state === "dead") return;
+    this.state = "dead";
+    clearInterval(this.pingTimer);
+    if (this.onEnd) this.onEnd(msg);
+  },
+  reset(){
+    clearInterval(this.pingTimer);
+    try { if (this.conn) this.conn.close(); } catch(e){}
+    try { if (this.peer) this.peer.destroy(); } catch(e){}
+    this.peer = null; this.conn = null; this.state = "idle";
+    this.localInputs.clear(); this.remoteInputs.clear();
+    this.remoteChar = null; this.desync = false; this.ping = 0;
+  },
+  leave(){ this.send({ t:"bye" }); this.reset(); }
+};
+
+/* ============================================================================
+   MENUS, SCENES AND THE MAIN LOOP
+   ========================================================================== */
+
+const NOTATION = {
+  bolt:"↓ ↘ → + Punch",       rise:"→ ↓ ↘ + Punch",
+  heel:"↓ ↙ ← + Kick",        rush:"↓ ↘ → + Punch",
+  clasp:"← ↙ ↓ ↘ → + Punch",
+  anvil:"↓ ↙ ← + Kick",
+  lance:"Hold ← (1s) then → + Punch",
+  fang:"Hold ↓ (1s) then ↑ + Kick",
+  razor:"↓ ↘ → + Kick",
+  tempest:"↓↘→ ×2 + Punch (needs SUPER)",
+  wrecking:"↓↘→ ×2 + Punch (needs SUPER)",
+  circuit:"↓↘→ ×2 + Kick (needs SUPER)"
+};
+
+const uiRoot = document.getElementById("ui");
+let scene = "title", titleFrame = 0;
+let game = null, mode = "cpu", ai = null, aiSide = 1, netStalled = 0, paused = false;
+let sel = { p1:"kestrel", p2:"brick", diff:"normal" };   /* overwritten by Settings.load() at boot */
+
+function panel(html){
+  uiRoot.innerHTML = '<div class="panel">' + html + "</div>";
+  uiRoot.classList.remove("hide");
+  const first = uiRoot.querySelector("button, input");
+  if (first) first.focus();
+}
+function closePanel(){ uiRoot.innerHTML = ""; }
+function $(sel){ return uiRoot.querySelector(sel); }
+function bind(id, fn){ const el = uiRoot.querySelector(id); if (el) el.addEventListener("click", e => { Sfx.unlock(); Sfx.play("select"); fn(e); }); }
+
+function charCardsHTML(selectedKey, label){
+  let h = '<h3>' + label + '</h3><div class="csgrid">';
+  for (const c of CHARACTERS){
+    h += '<div class="cscard' + (c.key === selectedKey ? " sel" : "") + '" data-key="' + c.key + '">' +
+         '<canvas width="64" height="76" data-portrait="' + c.key + '"></canvas>' +
+         '<div class="nm">' + c.name + '</div><div class="rl">' + c.role + '</div></div>';
+  }
+  return h + "</div>";
+}
+function paintPortraits(){
+  uiRoot.querySelectorAll("canvas[data-portrait]").forEach(cv => {
+    const ch = CHAR_BY_KEY[cv.dataset.portrait];
+    const spr = getSprite(ch, POSE.idle1, 1, null);
+    const c = cv.getContext("2d");
+    c.imageSmoothingEnabled = false;
+    c.clearRect(0, 0, cv.width, cv.height);
+    c.drawImage(spr, SPRITE_OX - 32, SPRITE_OY - 74, 64, 76, 0, 0, 64, 76);
+  });
+}
+function charInfoHTML(key){
+  const c = CHAR_BY_KEY[key];
+  let h = '<p><b>' + c.name + '</b> — ' + c.role + '. ' + c.blurb + '</p><div class="movelist">';
+  for (const s of c.specials) h += '<div><b>' + s.make(IN_MP).name + '</b> — ' + (NOTATION[s.key] || "") + "</div>";
+  h += '<div><b>' + c.super.name + '</b> — ' + (NOTATION[c.super.key] || "") + "</div></div>";
+  return h;
+}
+function wireCharCards(onPick){
+  uiRoot.querySelectorAll(".cscard").forEach(el => {
+    el.addEventListener("click", () => { Sfx.unlock(); Sfx.play("select"); onPick(el.dataset.key); });
+  });
+  paintPortraits();
+}
+
+/* ---- screens -------------------------------------------------------------- */
+
+function sceneTitle(){
+  scene = "title";
+  Net.reset();
+  panel(
+    '<h1>Iron Circuit</h1><h2>An original arcade fighter</h2>' +
+    '<button class="mi" id="mOnline">Online match<span class="sub">Play a friend anywhere — share a five-letter room code</span></button>' +
+    '<button class="mi" id="mCpu">Practice vs CPU<span class="sub">Single player, three difficulty levels</span></button>' +
+    '<button class="mi" id="mLocal">Local versus<span class="sub">Two players, one keyboard</span></button>' +
+    '<div class="row"><button class="mi ghost" id="mHelp" style="text-align:center">How to play</button>' +
+    '<button class="mi ghost" id="mSettings" style="text-align:center">Settings</button></div>' +
+    '<div class="foot">Best of three rounds. Original characters and art.<br>' +
+    '<span id="muteLbl">' + (Sfx.muted ? "Sound off" : "Sound on") + '</span> — press M to toggle.' +
+    '<br>Version ' + GAME_VERSION + '</div>'
+  );
+  bind("#mOnline", () => sceneCharSelect("net"));
+  bind("#mCpu",    () => sceneCharSelect("cpu"));
+  bind("#mLocal",  () => sceneCharSelect("local"));
+  bind("#mHelp",   sceneHelp);
+  bind("#mSettings", sceneSettings);
+}
+
+function sceneSettings(){
+  scene = "settings";
+  const pads = Pad.connected();
+  const row = (act, label) =>
+    '<tr><td>' + label + '</td>' +
+    ['p1','p2'].map(side =>
+      '<td><button class="keycap" data-side="' + side + '" data-act="' + act + '">' +
+      keyLabel(Settings.binds[side][act]) + "</button></td>").join("") + "</tr>";
+  panel(
+    '<h1>Settings</h1><h2>Controls and preferences</h2>' +
+    '<h3>Keyboard</h3>' +
+    '<p>Click a key, then press the one you want. <b>Esc</b> cancels.</p>' +
+    '<table class="binds"><tr><th>Action</th><th>Player 1</th><th>Player 2</th></tr>' +
+    ACTIONS.map(a => row(a[0], a[1])).join("") + "</table>" +
+    '<div class="status" id="bindMsg"></div>' +
+    '<h3>On-screen controls</h3><div class="row">' +
+    ["auto","on","off"].map(t =>
+      '<button class="mi' + (Settings.touchMode === t ? "" : " ghost") + '" data-touch="' + t +
+      '" style="text-align:center">' + t + "</button>").join("") + "</div>" +
+    '<p>Auto shows the on-screen pad on touch devices only.</p>' +
+    '<h3>Gamepad</h3><p>' +
+    (pads ? pads + " controller" + (pads > 1 ? "s" : "") + " connected. Face buttons are the light and medium " +
+            "attacks, shoulders the heavies. Press a button on a pad if it is not detected yet."
+          : "No controller detected. Plug one in and press a button on it — browsers hide gamepads until you do.") +
+    "</p>" +
+    '<div class="row"><button class="mi ghost" id="reset" style="text-align:center">Reset keys</button>' +
+    '<button class="mi" id="back" style="text-align:center">Done</button></div>'
+  );
+  const msg = t => { const el = $("#bindMsg"); if (el){ el.textContent = t || ""; el.className = "status" + (t ? " err" : ""); } };
+  uiRoot.querySelectorAll(".keycap").forEach(btn => btn.addEventListener("click", () => {
+    if (Input.capturing) return;
+    Sfx.unlock(); Sfx.play("select");
+    msg("");
+    btn.classList.add("listening");
+    btn.textContent = "PRESS A KEY";
+    Input.capturing = true;
+    const grab = e => {
+      e.preventDefault(); e.stopPropagation();
+      removeEventListener("keydown", grab, true);
+      Input.capturing = false;
+      btn.classList.remove("listening");
+      const { side, act } = btn.dataset;
+      if (e.code !== "Escape"){
+        const clash = bindConflict(e.code, side, act);
+        if (clash) msg(keyLabel(e.code) + " is already " + clash.side.toUpperCase() + " " +
+                       (ACTIONS.find(a => a[0] === clash.act) || [,"?"])[1].toLowerCase() + ".");
+        else { Settings.binds[side][act] = e.code; rebuildMaps(); Settings.save(); }
+      }
+      btn.textContent = keyLabel(Settings.binds[side][act]);
+    };
+    addEventListener("keydown", grab, true);
+  }));
+  uiRoot.querySelectorAll("[data-touch]").forEach(b => b.addEventListener("click", () => {
+    Settings.touchMode = b.dataset.touch; Settings.save(); Touch.apply(); Sfx.play("select");
+    uiRoot.querySelectorAll("[data-touch]").forEach(x => x.classList.toggle("ghost", x.dataset.touch !== Settings.touchMode));
+  }));
+  bind("#reset", () => { Settings.resetBinds(); sceneSettings(); });
+  bind("#back", sceneTitle);
+}
+
+const cap = code => "<kbd>" + keyLabel(code) + "</kbd>";
+function sceneHelp(){
+  scene = "help";
+  panel(
+    '<h1>How to play</h1><h2>Controls</h2>' +
+    '<table class="keys">' +
+    '<tr><td>' + ["up","left","down","right"].map(a => cap(Settings.binds.p1[a])).join("") +
+    ' or arrows</td><td>Move · up jumps · down crouches · hold back to block</td></tr>' +
+    '<tr><td>' + ["lp","mp","hp"].map(a => cap(Settings.binds.p1[a])).join("") + '</td><td>Light, medium, heavy <b>punch</b></td></tr>' +
+    '<tr><td>' + ["lk","mk","hk"].map(a => cap(Settings.binds.p1[a])).join("") + '</td><td>Light, medium, heavy <b>kick</b></td></tr>' +
+    '<tr><td>' + cap(Settings.binds.p1.lp) + ' + ' + cap(Settings.binds.p1.lk) + ' up close</td><td>Throw — beats blocking</td></tr>' +
+    '<tr><td><kbd>Esc</kbd> · <kbd>M</kbd></td><td>Pause (offline) · mute</td></tr>' +
+    '</table>' +
+    '<p>Player two on one keyboard uses ' +
+    ["up","left","down","right"].map(a => cap(Settings.binds.p2[a])).join("") + ', ' +
+    ["lp","mp","hp"].map(a => cap(Settings.binds.p2[a])).join("") + ' for punches and ' +
+    ["lk","mk","hk"].map(a => cap(Settings.binds.p2[a])).join("") + ' for kicks. ' +
+    'All of it is remappable under <b>Settings</b>.</p>' +
+    '<p><b>Gamepads</b> work too — face buttons are the light and medium attacks, ' +
+    'shoulders the heavies. On a phone or tablet an <b>on-screen pad</b> appears ' +
+    'automatically: sweep your thumb around the ring for quarter-circles.</p>' +
+    '<h3>The rules that matter</h3>' +
+    '<p><b>Blocking</b> is holding away from your opponent. Stand-block stops overheads and jump-ins; ' +
+    'crouch-block stops sweeps and low kicks. Nothing blocks a throw.<br><br>' +
+    '<b>Cancelling</b> — a light or medium normal that connects can be cancelled straight into a special, ' +
+    'which is how combos are built.<br><br>' +
+    '<b>The super meter</b> fills as you deal and take damage. Full meter, one super.</p>' +
+    '<button class="mi" id="back">Back</button>'
+  );
+  bind("#back", sceneTitle);
+}
+
+function sceneCharSelect(m, stage){
+  mode = m;
+  stage = stage || 1;
+  scene = "select";
+  const who = m === "net" ? "Choose your fighter" :
+              stage === 1 ? "Player one — choose your fighter" :
+              m === "cpu" ? "Choose your opponent" : "Player two — choose your fighter";
+  const cur = stage === 1 ? sel.p1 : sel.p2;
+  let extra = "";
+  if (m === "cpu" && stage === 2){
+    extra = '<h3>Difficulty</h3><div class="row">' +
+      ["easy","normal","hard"].map(d =>
+        '<button class="mi' + (sel.diff === d ? "" : " ghost") + '" data-diff="' + d + '" style="text-align:center">' + d + '</button>').join("") +
+      "</div>";
+  }
+  panel(
+    '<h1>Select</h1><h2>' + who + "</h2>" +
+    charCardsHTML(cur, "Fighters") +
+    '<div id="info">' + charInfoHTML(cur) + "</div>" + extra +
+    '<div class="row"><button class="mi ghost" id="back" style="text-align:center">Back</button>' +
+    '<button class="mi" id="go" style="text-align:center">Confirm</button></div>'
+  );
+  const setCur = k => {
+    if (stage === 1){ sel.p1 = k; Settings.p1 = k; } else { sel.p2 = k; Settings.p2 = k; }
+    Settings.save();
+  };
+  wireCharCards(k => {
+    setCur(k);
+    uiRoot.querySelectorAll(".cscard").forEach(el => el.classList.toggle("sel", el.dataset.key === k));
+    $("#info").innerHTML = charInfoHTML(k);
+  });
+  uiRoot.querySelectorAll("[data-diff]").forEach(b => b.addEventListener("click", () => {
+    sel.diff = b.dataset.diff; Settings.diff = sel.diff; Settings.save(); Sfx.play("select");
+    uiRoot.querySelectorAll("[data-diff]").forEach(x => x.classList.toggle("ghost", x.dataset.diff !== sel.diff));
+  }));
+  bind("#back", () => stage === 2 ? sceneCharSelect(m, 1) : sceneTitle());
+  bind("#go", () => {
+    if (m === "net") sceneOnline();
+    else if (stage === 1) sceneCharSelect(m, 2);
+    else startOfflineMatch();
+  });
+}
+
+function sceneOnline(){
+  scene = "online";
+  panel(
+    '<h1>Online</h1><h2>Playing as ' + CHAR_BY_KEY[sel.p1].name + "</h2>" +
+    '<button class="mi" id="host">Host a room<span class="sub">You get a code — send it to your opponent</span></button>' +
+    '<button class="mi" id="join">Join a room<span class="sub">Enter the code they sent you</span></button>' +
+    '<button class="mi ghost" id="back">Back</button>' +
+    '<div class="foot">Matches run browser-to-browser over WebRTC. A public broker is used only ' +
+    'to introduce the two of you; no game data passes through it.<br><br>' +
+    'Online play needs this page served over <b>https</b> from a site that allows outbound ' +
+    'connections. Opening the file from disk, or from a sandboxed preview, gives you the ' +
+    'offline modes only.</div>'
+  );
+  bind("#host", sceneHost);
+  bind("#join", sceneJoin);
+  bind("#back", () => sceneCharSelect("net"));
+}
+
+function netStatusHook(){
+  Net.onStatus = (msg, kind) => {
+    const el = $(".status");
+    if (el){ el.textContent = msg; el.className = "status" + (kind ? " " + kind : ""); }
+  };
+  Net.onStart = (charKeys, seed, mySide) => startNetMatch(charKeys, seed, mySide);
+  Net.onEnd = msg => {
+    if (scene === "match" || scene === "results") sceneDisconnected(msg);
+    else { const el = $(".status"); if (el){ el.textContent = msg; el.className = "status err"; } }
+  };
+}
+
+function sceneHost(){
+  scene = "lobby";
+  panel(
+    '<h1>Your room</h1><h2>Send this code to your opponent</h2>' +
+    '<div class="bigcode" id="code">·····</div>' +
+    '<div class="row"><button class="mi ghost" id="copy" style="text-align:center">Copy code</button>' +
+    '<button class="mi ghost" id="cancel" style="text-align:center">Cancel</button></div>' +
+    '<div class="status">Opening room…</div>'
+  );
+  netStatusHook();
+  Net.host(sel.p1);
+  $("#code").textContent = Net.code || "—";
+  bind("#copy", () => {
+    const t = Net.code;
+    if (navigator.clipboard) navigator.clipboard.writeText(t).then(
+      () => Net.status("Code copied.", "ok"), () => Net.status("Copy failed — read it out instead."));
+    else Net.status("Copy is unavailable here — read it out instead.");
+  });
+  bind("#cancel", () => { Net.leave(); sceneOnline(); });
+}
+
+function sceneJoin(){
+  scene = "lobby";
+  panel(
+    '<h1>Join</h1><h2>Enter the five-letter code</h2>' +
+    '<input class="code" id="codein" maxlength="5" autocomplete="off" spellcheck="false" placeholder="-----">' +
+    '<div class="row" style="margin-top:10px"><button class="mi ghost" id="cancel" style="text-align:center">Back</button>' +
+    '<button class="mi" id="go" style="text-align:center">Connect</button></div>' +
+    '<div class="status"></div>'
+  );
+  netStatusHook();
+  const inp = $("#codein");
+  inp.focus();
+  inp.addEventListener("keydown", e => {
+    e.stopPropagation();
+    if (e.key === "Enter") $("#go").click();
+  });
+  bind("#go", () => {
+    const code = inp.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (code.length < 5){ Net.status("That code is five characters long.", "err"); return; }
+    Net.join(code, sel.p1);
+  });
+  bind("#cancel", () => { Net.leave(); sceneOnline(); });
+}
+
+function sceneDisconnected(msg){
+  scene = "results";
+  Net.reset();
+  panel('<h1>Disconnected</h1><h2>' + msg + "</h2>" +
+    '<button class="mi" id="back">Back to menu</button>');
+  bind("#back", sceneTitle);
+}
+
+/* ---- starting and ending matches ------------------------------------------ */
+
+let netSide = 0, rematchMe = false, rematchThem = false;
+
+function startOfflineMatch(){
+  const seed = (Date.now() & 0x7fffffff) >>> 0;
+  game = new Game([sel.p1, sel.p2], seed);
+  ai = mode === "cpu" ? new AI(sel.diff, seed ^ 0x5bf03635) : null;
+  aiSide = 1;
+  hud[0].trail = hud[1].trail = 1;
+  paused = false; scene = "match";
+  closePanel();
+  Sfx.unlock(); Sfx.play("round");
+}
+function startNetMatch(charKeys, seed, mySide){
+  netSide = mySide;
+  mode = "net";
+  game = new Game(charKeys, seed);
+  hud[0].trail = hud[1].trail = 1;
+  rematchMe = rematchThem = false;
+  netStalled = 0; paused = false; scene = "match";
+  closePanel();
+  Sfx.unlock(); Sfx.play("round");
+}
+
+function showResults(){
+  scene = "results";
+  const w = game.matchWinner;
+  const title = w < 0 ? "Draw game" : game.fighters[w].ch.name + " wins";
+  let sub;
+  if (mode === "net") sub = w === netSide ? "You win the set." : w < 0 ? "Even on rounds." : "You lost the set.";
+  else if (mode === "cpu") sub = w === 0 ? "You win." : "The CPU takes it.";
+  else sub = "Player " + (w + 1) + " takes the set.";
+
+  let html = "<h1>" + title + "</h1><h2>" + sub + "</h2>" +
+    "<p>" + game.fighters[0].ch.name + " " + game.fighters[0].wins + " — " +
+    game.fighters[1].wins + " " + game.fighters[1].ch.name + "</p>";
+  if (mode === "net") html += '<div class="status" id="rmStatus">' +
+    (Net.ping ? "Ping " + Net.ping + "ms" : "") + "</div>";
+  html += '<button class="mi" id="again">Rematch</button>' +
+          '<button class="mi ghost" id="chars">Change fighter</button>' +
+          '<button class="mi ghost" id="menu">Main menu</button>';
+  panel(html);
+
+  bind("#again", () => {
+    if (mode === "net"){
+      rematchMe = true;
+      Net.send({ t:"rematch" });
+      const el = $("#rmStatus");
+      if (el){ el.textContent = "Rematch requested — waiting for your opponent…"; el.className = "status"; }
+      tryRematch();
+    } else startOfflineMatch();
+  });
+  bind("#chars", () => {
+    if (mode === "net"){ Net.leave(); sceneCharSelect("net"); }
+    else sceneCharSelect(mode, 1);
+  });
+  bind("#menu", () => { if (mode === "net") Net.leave(); sceneTitle(); });
+}
+function tryRematch(){
+  if (!(rematchMe && rematchThem)) return;
+  rematchMe = rematchThem = false;
+  if (Net.isHost) Net.restart(sel.p1);
+  /* the guest simply waits for the host's "start" */
+}
+
+/* ---- pause ---------------------------------------------------------------- */
+function togglePause(){
+  if (scene !== "match" || mode === "net") return;
+  paused = !paused;
+  if (paused){
+    panel('<h1>Paused</h1><h2>' + game.fighters[0].ch.name + " vs " + game.fighters[1].ch.name + "</h2>" +
+      '<button class="mi" id="resume">Resume</button>' +
+      '<button class="mi ghost" id="restart">Restart match</button>' +
+      '<button class="mi ghost" id="quit">Quit to menu</button>');
+    bind("#resume", togglePause);
+    bind("#restart", startOfflineMatch);
+    bind("#quit", sceneTitle);
+  } else closePanel();
+}
+
+/* ---- attract screen ------------------------------------------------------- */
+function renderTitle(){
+  const st = stageFor("neon");
+  const camX = (titleFrame * 0.22) % (STAGE_W - W);
+  sctx.fillStyle = "#05060f"; sctx.fillRect(0, 0, W, H);
+  sctx.drawImage(st.far,  Math.round(-camX * 0.25), 0);
+  sctx.drawImage(st.near, Math.round(-camX * 0.55), 0);
+  sctx.drawImage(st.floor, Math.round(-camX), GROUND_Y - 2);
+  const spots = [[58, 1], [W - 58, -1]];
+  for (let i = 0; i < 2; i++){
+    const ch = CHARACTERS[i === 0 ? 0 : 1];
+    const pose = animPose(ANIM.idle, titleFrame + i * 13);
+    const spr = getSprite(ch, pose, spots[i][1], null);
+    sctx.fillStyle = "rgba(0,0,0,.34)";
+    sctx.fillRect(spots[i][0] - 15, GROUND_Y - 2, 30, 4);
+    sctx.drawImage(spr, spots[i][0] - SPRITE_OX, GROUND_Y - SPRITE_OY);
+  }
+  sctx.fillStyle = "rgba(5,6,15,.55)"; sctx.fillRect(0, 0, W, H);
+  drawTextC(sctx, "IRON CIRCUIT", W/2 + 2, 26, "#3a1020", 3, 3);
+  drawTextC(sctx, "IRON CIRCUIT", W/2, 24, "#ffcc33", 3, 3);
+  if (((titleFrame >> 5) & 1) === 0)
+    drawTextC(sctx, "INSERT NOTHING - PLAY FREE", W/2, H - 22, "#8b88a3", 1, 1);
+}
+
+/* ---- main loop ------------------------------------------------------------ */
+let acc = 0, last = performance.now();
+
+function tick(){
+  titleFrame++;
+  if (scene !== "match" || !game || paused) return;
+
+  if (mode === "net"){
+    if (Net.state !== "playing") return;
+    const local = cleanMask(Input.read(KEYMAP_SOLO) | Pad.readAny() | Touch.read());
+    const pair = Net.exchange(local, game);
+    if (!pair){ netStalled++; return; }
+    netStalled = 0;
+    game.step(pair);
+  } else if (mode === "local"){
+    /* Two players share the keyboard; a pad each takes precedence if present. */
+    const i0 = cleanMask(Input.read(KEYMAP_P1) | Pad.read(0) | Touch.read());
+    const i1 = cleanMask(Input.read(KEYMAP_P2) | Pad.read(1));
+    game.step([i0, i1]);
+  } else {
+    const i0 = cleanMask(Input.read(KEYMAP_SOLO) | Pad.readAny() | Touch.read());
+    const i1 = ai.think(game.fighters[1], game.fighters[0], game);
+    game.step([i0, i1]);
+  }
+  if (game.phase === PH.MATCHEND && game.phaseTimer > 140) showResults();
+}
+
+let touchShown = null;
+function draw(){
+  /* The on-screen pad covers the whole frame, so it may only be up while a
+     match is actually running — otherwise it would swallow menu taps. */
+  const playing = scene === "match" && !paused;
+  if (playing !== touchShown){
+    touchShown = playing;
+    document.body.classList.toggle("playing", playing);
+    if (!playing){ Touch.pointers.clear(); Touch.recompute(); }
+  }
+  if ((scene === "match" || scene === "results") && game){
+    render(game);
+    if (mode === "net" && netStalled > 30){
+      const msg = netStalled > 600 ? "OPPONENT NOT RESPONDING" : "WAITING FOR OPPONENT";
+      sctx.fillStyle = "rgba(5,6,15,.72)"; sctx.fillRect(0, H/2 - 16, W, 32);
+      drawTextC(sctx, msg, W/2, H/2 - 4, "#ffcc33", 1, 1);
+    }
+    if (mode === "net" && Net.desync){
+      sctx.fillStyle = "rgba(120,10,20,.8)"; sctx.fillRect(0, 4, W, 12);
+      drawTextC(sctx, "DESYNC - RESULT UNRELIABLE", W/2, 6, "#fff", 1, 1);
+    }
+  } else {
+    renderTitle();
+  }
+}
+
+function frame(now){
+  requestAnimationFrame(frame);
+  let dt = now - last; last = now;
+  if (dt > 250) dt = 250;
+  acc += dt;
+  let steps = 0;
+  while (acc >= TICK_MS && steps < 6){ acc -= TICK_MS; steps++; tick(); }
+  draw();
+}
+
+/* ---- fit the canvas to the window ---------------------------------------- */
+function fit(){
+  const wrap = document.getElementById("wrap");
+  const aw = wrap.clientWidth - 12;
+  /* In portrait the on-screen controls sit below the screen rather than over
+     it, so the canvas only gets the top half. */
+  const portrait = wrap.clientHeight > wrap.clientWidth;
+  const ah = (Touch.active && portrait ? wrap.clientHeight * 0.52 : wrap.clientHeight) - 12;
+  let s = Math.min(aw / W, ah / H);
+  s = Touch.active
+    ? Math.max(0.4, Math.round(s * 20) / 20)                    /* fill a small screen */
+    : (s >= 1 ? Math.floor(s) : Math.max(0.4, Math.floor(s * 20) / 20));  /* stay crisp */
+  screen.style.width  = Math.round(W * s) + "px";
+  screen.style.height = Math.round(H * s) + "px";
+}
+
+/* ---- boot ----------------------------------------------------------------- */
+Settings.load();
+rebuildMaps();
+sel.p1 = Settings.p1; sel.p2 = Settings.p2; sel.diff = Settings.diff;
+Input.init();
+Touch.init();
+Touch.apply();
+Sfx.muted = Settings.muted;
+addEventListener("resize", () => { Touch.apply(); fit(); });
+addEventListener("orientationchange", () => setTimeout(() => { Touch.apply(); fit(); }, 120));
+addEventListener("gamepadconnected", () => { if (scene === "settings") sceneSettings(); });
+addEventListener("keydown", e => {
+  if (e.target && (e.target.tagName === "INPUT")) return;
+  if (Input.capturing) return;
+  if (e.code === "Escape") togglePause();
+  if (e.code === "KeyM"){
+    const m = Sfx.toggleMute();
+    Settings.muted = m; Settings.save();
+    const l = document.getElementById("muteLbl");
+    if (l) l.textContent = m ? "Sound off" : "Sound on";
+  }
+});
+Net.onRematch = () => { rematchThem = true; tryRematch(); };
+fit();
+sceneTitle();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
