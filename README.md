@@ -136,6 +136,7 @@ npm run test:soak    # every pairing played to a result; slower, run before a re
 | `src/shell.html` | Markup, styles, and the `//__BUNDLE__` marker |
 | `src/config.js` | Tunables, world constants, input bits, helpers |
 | `src/input.js` | Bindings, saved settings, keyboard, gamepad, touch |
+| `src/palette.js` | Mega Drive colour, tone ramps, ordered dithering |
 | `src/rig.js` | Poses and animation data |
 | `src/hurtboxes.js` | What can be hit, per pose (generated) |
 | `src/moves.js` · `characters.js` | Frame data and the roster |
@@ -229,6 +230,35 @@ Long-lived TURN credentials sitting in a public page can be harvested and used
 to relay someone else's traffic at your expense. Prefer a provider that issues
 short-lived credentials, and fetch them at runtime rather than pasting them
 into the file.
+
+## The look
+
+The art is built to the Mega Drive's constraints rather than styled to
+resemble them, which is what makes it read as 16-bit instead of as a filter.
+
+**Nine-bit colour.** The VDP stored three bits per channel, so every colour on
+the console was one of 512, and the eight levels per channel are not an even
+split of 0–255 — they are what the hardware's DAC actually put out. Every
+colour in the game is snapped to them.
+
+**Sixteen colours per fighter.** A sprite got one 16-entry palette, one entry
+of which was transparent. That budget is spent deliberately: five tones on the
+outfit, four on skin, three on hair, two on trim, one rim, and an outline that
+doubles as the eye. The tests assert that no pixel of any pose falls outside
+it.
+
+**Ramps built in HSV, not by scaling RGB.** Darkening channels independently
+pushes them into the same quantisation bucket, and eight levels is coarse
+enough that a "dark skin tone" comes out grey. Shadows keep their saturation
+and rotate towards blue; highlights lose a little saturation and barely rotate
+at all — sending a hue "towards warm" takes the short way round the wheel, and
+for anything blue that route runs through green.
+
+**No alpha.** The hardware could not blend, so anything see-through was a
+checkerboard of two solid colours. Skies, glows and shadows are ordered-dithered
+through a 4×4 Bayer matrix indexed by absolute canvas position — index it
+relative to the shape being drawn and a thin band collapses into vertical
+pinstripes.
 
 ## Tuning the game
 

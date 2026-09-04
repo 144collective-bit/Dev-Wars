@@ -225,7 +225,7 @@ const ROOM_PREFIX  = "ironcircuit-v1-";  /* namespaces room codes on the broker 
    apart. Bump this on EVERY release: a mismatched pair is refused up front
    with a "refresh the page" message, which is a far cheaper failure than a
    match that silently desyncs halfway through. */
-const GAME_VERSION = "1.4.0";
+const GAME_VERSION = "1.5.0";
 const NET_DELAY    = 3;                  /* frames of input delay in online play */
 
 /* ---- Screen / world constants -------------------------------------------- */
@@ -274,6 +274,222 @@ function hashState(g){
   }
   return h >>> 0;
 }
+
+/* ============================================================================
+   COLOUR — a Mega Drive palette, and the shading that goes with it
+   ----------------------------------------------------------------------------
+   The console look is a set of constraints, not a filter. The VDP stored three
+   bits per channel, so every colour on a Mega Drive is one of 512, and those
+   eight levels per channel are not an even split of 0-255 — they are what the
+   DAC actually put out. Snapping to them is most of the look.
+
+   The other half is what the hardware could not do: there was no alpha
+   blending, so anything see-through was a checkerboard of two solid colours,
+   and there was no per-pixel lighting, so form came from hand-placed tone
+   ramps. Both are reproduced here rather than approximated with transparency.
+   ========================================================================== */
+
+const MD_LEVELS = [0, 52, 87, 116, 144, 172, 206, 255];
+
+function mdLevel(v){
+  v = v < 0 ? 0 : v > 255 ? 255 : v;
+  let best = 0, bestD = 1e9;
+  for (const l of MD_LEVELS){ const d = Math.abs(l - v); if (d < bestD){ bestD = d; best = l; } }
+  return best;
+}
+const hex2 = v => v.toString(16).padStart(2, "0");
+function mdRGB(r, g, b){ return "#" + hex2(mdLevel(r)) + hex2(mdLevel(g)) + hex2(mdLevel(b)); }
+function parseHex(h){
+  if (h.length === 4) h = "#" + h[1] + h[1] + h[2] + h[2] + h[3] + h[3];
+  return [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
+}
+/* Snap any colour onto the console's palette. */
+function md(h){ const [r,g,b] = parseHex(h); return mdRGB(r, g, b); }
+
+/* Lighter and darker versions of a colour.
+
+   Done in HSV, not by scaling RGB channels. Scaling channels independently
+   pushes them into the same quantisation bucket at low values, and an eight
+   level ramp is coarse enough that a "dark skin tone" comes out grey. Pixel
+   artists never darken that way either: shadows keep their saturation and
+   rotate towards blue, highlights lose saturation and rotate towards warm.
+   Doing that keeps the hue alive after the colour is snapped to the console
+   palette, which is the whole point. */
+function rgb2hsv(r, g, b){
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r,g,b), mn = Math.min(r,g,b), d = mx - mn;
+  let h = 0;
+  if (d){
+    if (mx === r) h = ((g - b) / d + (g < b ? 6 : 0)) * 60;
+    else if (mx === g) h = ((b - r) / d + 2) * 60;
+    else h = ((r - g) / d + 4) * 60;
+  }
+  return [h, mx ? d / mx : 0, mx];
+}
+function hsv2rgb(h, s, v){
+  h = ((h % 360) + 360) % 360;
+  const c = v * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = v - c;
+  let r = 0, g = 0, b = 0;
+  if (h < 60){ r = c; g = x; } else if (h < 120){ r = x; g = c; }
+  else if (h < 180){ g = c; b = x; } else if (h < 240){ g = x; b = c; }
+  else if (h < 300){ r = x; b = c; } else { r = c; b = x; }
+  return [(r + m) * 255, (g + m) * 255, (b + m) * 255];
+}
+/* Rotate a hue the short way round towards a target. */
+function towards(h, target, amt){
+  let d = ((target - h + 540) % 360) - 180;
+  return h + d * amt;
+}
+function tone(hex, amt){
+  let [h, s, v] = rgb2hsv(...parseHex(hex));
+  if (amt >= 0){
+    v = v + (1 - v) * amt * 0.86;
+    s = s * (1 - amt * 0.46);
+    h = towards(h, 45, amt * 0.30);          /* highlights drift warm */
+  } else {
+    const a = -amt;
+    v = v * (1 - a * 0.62);
+    s = Math.min(1, s * (1 + a * 0.55) + a * 0.10);
+    h = towards(h, 250, a * 0.26);           /* shadows drift cool */
+  }
+  return mdRGB(...hsv2rgb(h, s, v));
+}
+
+/* Five tones per material: the most a 16-colour palette can spend on one
+   surface and still leave room for everything else.
+
+   A base colour near white or near black has nowhere to go — pure white
+   cannot be highlighted, and five shades of near-black all snap to the same
+   value. So the base is first pulled into the middle of the range, exactly as
+   an artist picks light grey rather than white for hair they intend to shade.
+   The tones are then nudged apart until all five survive the quantiser as
+   different colours, which the loop below guarantees rather than assumes. */
+function ramp(hex){
+  let [h, s0, v0] = rgb2hsv(...parseHex(hex));
+  const v = clamp(v0, 0.32, 0.76);
+  const lo = Math.max(0.08, v * 0.34);
+  const hi = Math.min(1, v + (1 - v) * 0.66);
+  const at = (val, warm) => {
+    const t = (val - v) / (val >= v ? Math.max(0.001, hi - v) : Math.max(0.001, v - lo));
+    /* Highlights lose only a little saturation. Draining it turns a saturated
+       red into peach, which then collides with skin — an outfit that reads as
+       bare arms. Bright and still coloured is what a lit surface looks like. */
+    const sat = val >= v ? s0 * (1 - t * 0.28) : Math.min(1, s0 * (1 + (-t) * 0.50) + (-t) * 0.09);
+    /* Highlights barely rotate. Sending a hue "towards warm" takes the short
+       way round the wheel, and for anything blue that route runs through
+       green — a blue tunic with a mint highlight. Desaturating and raising
+       the value is what actually reads as lit; the hue can stay put. */
+    const hue = val >= v ? towards(h, 45, t * 0.08) : towards(h, 250, (-t) * 0.28);
+    return mdRGB(...hsv2rgb(hue, clamp(sat, 0, 1), clamp(val, 0, 1)));
+  };
+  const targets = [lo, lo + (v - lo) * 0.52, v, v + (hi - v) * 0.48, hi];
+  const out = [];
+  for (let i = 0; i < 5; i++){
+    let val = targets[i], col = at(val, i > 2);
+    /* Walk it away from its neighbour until the quantiser tells them apart. */
+    for (let tries = 0; tries < 24 && i > 0 && col === out[i - 1]; tries++){
+      val = clamp(val + 0.035, 0, 1);
+      col = at(val, i > 2);
+    }
+    out.push(col);
+  }
+  /* A base that is already near white cannot be pushed up any further, so the
+     collision has to be resolved by pulling the tone below it down instead.
+     Running both directions is what makes white hair shadeable at all. */
+  for (let i = 4; i > 0; i--){
+    let val = targets[i - 1];
+    for (let tries = 0; tries < 24 && out[i] === out[i - 1]; tries++){
+      val = clamp(val - 0.035, 0, 1);
+      out[i - 1] = at(val, i - 1 > 2);
+    }
+  }
+  return {
+    dk: out[0], sh: out[1], mid: out[2], lit: out[3], hi: out[4],
+    /* A cool rim along the unlit edge: what separates a sprite from the
+       background without an outline heavy enough to look like a sticker. */
+    /* Dim on purpose. A rim is a hint that the figure has a far side, not a
+       neon outline — at full brightness it reads as a glow effect and fights
+       the silhouette it is supposed to support. */
+    rim: mdRGB(...hsv2rgb(towards(h, 212, 0.60), Math.min(1, s0 * 0.42 + 0.10),
+                          clamp(v * 0.42 + 0.16, 0, 0.62)))
+  };
+}
+/* True when all five body tones snapped to different colours. */
+function rampIsDistinct(r){
+  const v = [r.hi, r.lit, r.mid, r.sh, r.dk];
+  return new Set(v).size === v.length;
+}
+
+/* --- dithering -------------------------------------------------------------
+   The hardware had no translucency, so a 50% anything was two solid colours in
+   a checkerboard. Ordered dithering with a 4x4 Bayer matrix gives the same
+   effect at any ratio and is what the sky gradients and shadows use here. */
+const BAYER4 = [
+  [ 0,  8,  2, 10],
+  [12,  4, 14,  6],
+  [ 3, 11,  1,  9],
+  [15,  7, 13,  5]
+];
+/* Fills a rect with `over` on `under`, mixed by ordered dither. ratio 0..1. */
+function ditherRect(ctx, x, y, w, h, under, over, ratio){
+  x = Math.round(x); y = Math.round(y); w = Math.round(w); h = Math.round(h);
+  if (under){ ctx.fillStyle = under; ctx.fillRect(x, y, w, h); }
+  const cut = Math.round(ratio * 16);
+  if (cut <= 0) return;
+  ctx.fillStyle = over;
+  if (cut >= 16){ ctx.fillRect(x, y, w, h); return; }
+  /* Indexed by absolute canvas position, not position within this rect. Keyed
+     to the rect, a one-pixel-tall band only ever reads row 0 of the matrix and
+     the dither collapses into vertical pinstripes — and a gradient drawn as a
+     stack of thin bands is exactly that case. */
+  for (let j = 0; j < h; j++)
+    for (let i = 0; i < w; i++)
+      if (BAYER4[(y + j) & 3][(x + i) & 3] < cut) ctx.fillRect(x + i, y + j, 1, 1);
+}
+/* A vertical gradient between two colours, dithered rather than blended —
+   the Mega Drive sky. */
+function ditherGradient(ctx, x, y, w, h, top, bottom, steps){
+  steps = steps || h;
+  const band = h / steps;
+  for (let s = 0; s < steps; s++){
+    const t = steps === 1 ? 0 : s / (steps - 1);
+    const y0 = Math.round(y + s * band), y1 = Math.round(y + (s + 1) * band);
+    ditherRect(ctx, x, y0, w, y1 - y0, top, bottom, t);
+  }
+}
+
+/* --- a character's 16 colours ----------------------------------------------
+   The VDP gave a sprite one 16-entry palette, and one of those entries was
+   transparent. Fifteen colours for a whole fighter is the constraint that
+   forces the look: you cannot afford a five-tone ramp on every material, so
+   the outfit gets the most, skin next, and small parts share.
+
+   Budgeting it explicitly — rather than letting colours accumulate — is what
+   keeps a roster looking like one game. `paletteSize` is asserted in the
+   tests. */
+const OUTLINE = "#14141f";
+
+function characterPalette(pal){
+  const skin = ramp(pal.skin), suit = ramp(pal.suit),
+        hair = ramp(pal.hair), trim = ramp(pal.trim);
+  return {
+    /* 1  outline, doubling as the eye — near-black twice over is a colour
+       a sprite this size cannot afford to spend */
+    line:    md(OUTLINE),
+    /* 4  skin */
+    skinDk:  skin.sh,  skinMid: skin.mid, skinLit: skin.lit, skinHi:  skin.hi,
+    /* 5  the outfit, which carries most of the form */
+    suitDk:  suit.dk,  suitSh:  suit.sh,  suitMid: suit.mid,
+    suitLit: suit.lit, suitHi:  suit.hi,
+    /* 3  hair */
+    hairDk:  hair.dk,  hairMid: hair.mid, hairLit: hair.lit,
+    /* 2  boots, gloves, belt */
+    trimMid: trim.mid, trimLit: trim.lit,
+    /* 1  the cool rim that lifts the silhouette off the background */
+    rim:     suit.rim
+  };
+}
+const paletteSize = p => new Set(Object.values(p)).size;
 
 /* ============================================================================
    INPUT
@@ -1024,7 +1240,11 @@ const CHARACTERS = [
   blurb:"Walks like a cement mixer and hits like one. A command grab that goes straight through guard, and enough health to walk into range.",
   hp:1150, walkF:222, walkB:180, jumpV:1330, jumpX:250, scale:1.12, bulk:2,
   stageKey:"foundry",
-  pal:{ skin:"#d99a72", skinS:"#a46a48", skinB:"#78482f", suit:"#c8452e", suitS:"#8c2a1c",
+  /* A deeper red than it looks like it wants to be: at the top of its ramp a
+     mid red lightens into salmon and lands on top of his own skin tones, so
+     the overalls read as bare arms. Starting darker keeps the whole ramp
+     clearly outfit-coloured. */
+  pal:{ skin:"#cf9464", skinS:"#a46a48", skinB:"#78482f", suit:"#a82a22", suitS:"#8c2a1c",
         trim:"#3a3a46", hair:"#2a2a32", belt:"#5a4a32", glow:"#ffb347", eye:"#20202c" },
   specials:[
     { key:"rush", check:(mb,b)=> (b & PUNCHES) && mb.qcf(),
@@ -1080,6 +1300,9 @@ const CHARACTERS = [
       poses:[POSE.superHold,POSE.spin1,POSE.spin2], hit:{x:4,y:-58,w:34,h:40} }) }
 }
 ];
+
+/* Each fighter's sixteen colours, derived once from its base hues. */
+for (const c of CHARACTERS) c.p16 = characterPalette(c.pal);
 
 const CHAR_BY_KEY = {};
 for (const c of CHARACTERS) CHAR_BY_KEY[c.key] = c;
@@ -1189,7 +1412,6 @@ function drawTextShadow(ctx, str, x, y, color, shadow, sc=1, sp=1){
 
 const SPRITE_W = 150, SPRITE_H = 130, SPRITE_OX = 75, SPRITE_OY = 112;
 const spriteCache = new Map();
-const OUTLINE = "#14141f";
 
 /* Chunky capsule between two points: stamps square pixels along the segment
    so edges stay hard instead of antialiasing into mush. */
@@ -1216,11 +1438,27 @@ function roundRect(ctx, x, y, w, h, color){
   ctx.fillRect(x, y + 1, w, h - 2);
 }
 
+/* A limb shaded as a cylinder.
+
+   Passes, back to front: a cool rim offset away from the light, then the
+   shadow side at full width, then progressively narrower bands stepped
+   towards the light. Those offsets are the whole trick — they turn a flat
+   capsule into something with a round side, which is the difference between
+   this and the two-tone version it replaces. It costs nothing at draw time
+   because every pose is rasterised once and cached. */
+function limbShaded(ctx, x0, y0, x1, y1, t, tn, lx, ly){
+  if (tn.rim && t >= 5) limb(ctx, x0 - lx, y0 - ly, x1 - lx, y1 - ly, t, tn.rim);
+  limb(ctx, x0, y0, x1, y1, t, tn.sh);
+  if (t >= 4)  limb(ctx, x0 + lx,     y0 + ly,     x1 + lx,     y1 + ly,     t - 2, tn.mid);
+  if (t >= 7)  limb(ctx, x0 + lx*2,   y0 + ly*2,   x1 + lx*2,   y1 + ly*2,   t - 4, tn.lit);
+  if (t >= 14) limb(ctx, x0 + lx*3,   y0 + ly*3,   x1 + lx*3,   y1 + ly*3,   t - 8, tn.hi);
+}
+
 function buildSprite(ch, pose, facing, tint){
   const cv = document.createElement("canvas");
   cv.width = SPRITE_W; cv.height = SPRITE_H;
   const c = cv.getContext("2d");
-  const sc = ch.scale, b = ch.bulk, pal = ch.pal;
+  const sc = ch.scale, b = ch.bulk, P = ch.p16;
   const J = {};
   for (const k in pose){
     J[k] = [ SPRITE_OX + facing * Math.round(pose[k][0] * sc),
@@ -1232,62 +1470,95 @@ function buildSprite(ch, pose, facing, tint){
   const wUA = 6 + b, wFA = 5 + b, wTH = 9 + b, wSH = 7 + b, wTO = 16 + b*2;
   const headW = 14 + (b > 0 ? 2 : 0), headH = 15 + (b > 0 ? 1 : 0);
 
-  const col = tint === "flash" ? () => "#ffffff" : (x => x);
-  const OL = tint === "flash" ? "#ffffff" : OUTLINE;
+  /* The key light sits in front of the fighter and above, so it follows the
+     facing: turn around and the lit side turns with you, exactly as it does
+     when a hand-drawn sprite sheet is mirrored. */
+  const lx = facing, ly = -1;
+
+  /* On a hit the whole fighter flashes white for a few frames. Swapping the
+     tone sets rather than compositing keeps it a two-colour sprite. */
+  const W_ = "#ffffff";
+  const flash = tint === "flash";
+  const set = (rim, sh, mid, lit, hi) => flash
+    ? { rim:null, sh:W_, mid:W_, lit:W_, hi:W_ }
+    : { rim, sh, mid, lit, hi };
+  const suitF = set(P.rim, P.suitSh, P.suitMid, P.suitLit, P.suitHi);
+  const suitB = set(null,  P.suitDk, P.suitSh,  P.suitMid, P.suitLit);
+  const skinF = set(P.rim, P.skinDk, P.skinMid, P.skinLit, P.skinHi);
+  const skinB = set(null,  P.skinDk, P.skinDk,  P.skinMid, P.skinLit);
+  const col = x => flash ? W_ : x;
+  const OL = flash ? W_ : P.line;
 
   /* Pass 1: silhouette outline, one pixel fatter than every part. */
-  const outline = () => {
-    limb(c, J.sB[0],J.sB[1], J.eB[0],J.eB[1], wUA+2, OL);
-    limb(c, J.eB[0],J.eB[1], J.hB[0],J.hB[1], wFA+2, OL);
-    limb(c, hipB[0],hipB[1], J.kB[0],J.kB[1], wTH+2, OL);
-    limb(c, J.kB[0],J.kB[1], J.fB[0],J.fB[1], wSH+2, OL);
-    limb(c, J.pv[0],J.pv[1], J.nk[0],J.nk[1], wTO+2, OL);
-    limb(c, hipF[0],hipF[1], J.kF[0],J.kF[1], wTH+2, OL);
-    limb(c, J.kF[0],J.kF[1], J.fF[0],J.fF[1], wSH+2, OL);
-    limb(c, J.sF[0],J.sF[1], J.eF[0],J.eF[1], wUA+2, OL);
-    limb(c, J.eF[0],J.eF[1], J.hF[0],J.hF[1], wFA+2, OL);
-    blob(c, J.hd[0], J.hd[1], headW+2, headH+2, OL);
-    blob(c, J.fF[0]+facing*2, J.fF[1], 11, 6, OL);
-    blob(c, J.fB[0]+facing*2, J.fB[1], 11, 6, OL);
-  };
-  outline();
+  limb(c, J.sB[0],J.sB[1], J.eB[0],J.eB[1], wUA+2, OL);
+  limb(c, J.eB[0],J.eB[1], J.hB[0],J.hB[1], wFA+2, OL);
+  limb(c, hipB[0],hipB[1], J.kB[0],J.kB[1], wTH+2, OL);
+  limb(c, J.kB[0],J.kB[1], J.fB[0],J.fB[1], wSH+2, OL);
+  limb(c, J.pv[0],J.pv[1], J.nk[0],J.nk[1], wTO+2, OL);
+  limb(c, hipF[0],hipF[1], J.kF[0],J.kF[1], wTH+2, OL);
+  limb(c, J.kF[0],J.kF[1], J.fF[0],J.fF[1], wSH+2, OL);
+  limb(c, J.sF[0],J.sF[1], J.eF[0],J.eF[1], wUA+2, OL);
+  limb(c, J.eF[0],J.eF[1], J.hF[0],J.hF[1], wFA+2, OL);
+  blob(c, J.hd[0], J.hd[1], headW+2, headH+2, OL);
+  blob(c, J.fF[0]+facing*2, J.fF[1], 11, 6, OL);
+  blob(c, J.fB[0]+facing*2, J.fB[1], 11, 6, OL);
 
-  /* Pass 2: the parts themselves, back to front. */
-  /* back arm + back leg sit in shadow */
-  limb(c, J.sB[0],J.sB[1], J.eB[0],J.eB[1], wUA, col(pal.suitS));
-  limb(c, J.eB[0],J.eB[1], J.hB[0],J.hB[1], wFA - 1, col(pal.skinB));
-  blob(c, J.hB[0], J.hB[1], wFA+1, wFA+1, col(pal.skinB));
-  limb(c, hipB[0],hipB[1], J.kB[0],J.kB[1], wTH, col(pal.suitS));
-  limb(c, J.kB[0],J.kB[1], J.fB[0],J.fB[1], wSH, col(pal.suitS));
-  blob(c, J.fB[0]+facing*2, J.fB[1], 9, 4, col(pal.trim));
+  /* Pass 2: the parts, back to front. The far arm and leg use tones one step
+     down the ramp, which is how a sprite this small says "behind". */
+  limbShaded(c, J.sB[0],J.sB[1], J.eB[0],J.eB[1], wUA, suitB, lx, ly);
+  limbShaded(c, J.eB[0],J.eB[1], J.hB[0],J.hB[1], wFA-1, skinB, lx, ly);
+  blob(c, J.hB[0], J.hB[1], wFA+1, wFA+1, col(P.skinDk));
+  limbShaded(c, hipB[0],hipB[1], J.kB[0],J.kB[1], wTH, suitB, lx, ly);
+  limbShaded(c, J.kB[0],J.kB[1], J.fB[0],J.fB[1], wSH, suitB, lx, ly);
+  blob(c, J.fB[0]+facing*2, J.fB[1], 9, 4, col(P.trimMid));
 
-  /* torso, belt, head */
-  limb(c, J.pv[0],J.pv[1], J.nk[0],J.nk[1], wTO, col(pal.suit));
-  limb(c, J.pv[0],J.pv[1], J.nk[0],J.nk[1], Math.max(3, wTO-8), col(pal.suitS));
-  blob(c, J.pv[0], J.pv[1] + 1, wTO, 4, col(pal.belt));
-  blob(c, J.nk[0], J.nk[1] + 3, 7, 5, col(pal.skin));
+  /* torso */
+  limbShaded(c, J.pv[0],J.pv[1], J.nk[0],J.nk[1], wTO, suitF, lx, ly);
+  /* belt, with its own lit edge so it reads as a band and not a smear */
+  blob(c, J.pv[0], J.pv[1] + 1, wTO, 4, col(P.trimMid));
+  blob(c, J.pv[0] + lx, J.pv[1], wTO - 4, 1, col(P.trimLit));
+
+  /* neck sits in the chin's shadow */
+  blob(c, J.nk[0], J.nk[1] + 3, 7, 5, col(P.skinDk));
+
+  /* head */
   const hx = J.hd[0] - (headW>>1), hy = J.hd[1] - (headH>>1);
-  roundRect(c, hx, hy, headW, headH, col(pal.skin));
-  /* hair: a cap across the crown, plus a wedge down the back of the skull so
-     the head reads as facing somewhere even at this size */
-  roundRect(c, hx, hy, headW, 5, col(pal.hair));
-  c.fillStyle = col(pal.hair);
+  roundRect(c, hx, hy, headW, headH, col(P.skinMid));
+  if (!flash){
+    /* lit on the side the light comes from, shaded on the other */
+    c.fillStyle = P.skinLit;
+    c.fillRect(facing > 0 ? hx + headW - 5 : hx + 1, hy + 4, 4, headH - 7);
+    c.fillStyle = P.skinDk;
+    c.fillRect(facing > 0 ? hx : hx + headW - 1, hy + 3, 1, headH - 5);
+    c.fillRect(hx + 1, hy + headH - 3, headW - 2, 2);            /* jaw */
+    /* a single lit pixel column at nose height reads as a profile */
+    c.fillStyle = P.skinHi;
+    c.fillRect(J.hd[0] + facing * ((headW>>1) - 1), hy + 7, 1, 2);
+  }
+  /* hair: cap across the crown, wedge down the back of the skull */
+  roundRect(c, hx, hy, headW, 5, col(P.hairMid));
+  if (!flash){
+    c.fillStyle = P.hairLit;
+    c.fillRect(facing > 0 ? hx + 4 : hx + 2, hy + 1, headW - 6, 1);
+    c.fillStyle = P.hairDk;
+    c.fillRect(facing > 0 ? hx : hx + headW - 2, hy + 1, 2, 4);
+  }
+  c.fillStyle = col(P.hairMid);
   c.fillRect(facing > 0 ? hx : hx + headW - 3, hy + 4, 3, 5);
-  if (tint !== "flash"){
-    c.fillStyle = pal.skinS;
-    c.fillRect(hx + 1, hy + 5, headW - 2, 1);                    /* brow */
-    c.fillRect(hx + (facing > 0 ? 1 : 2), hy + headH - 3, headW - 3, 2); /* jaw */
-    c.fillStyle = pal.eye;
+  if (!flash){
+    c.fillStyle = P.line;
     c.fillRect(J.hd[0] + facing * 2, hy + 7, 2, 3);              /* eye */
   }
 
-  /* front leg + front arm read as lit */
-  limb(c, hipF[0],hipF[1], J.kF[0],J.kF[1], wTH, col(pal.suit));
-  limb(c, J.kF[0],J.kF[1], J.fF[0],J.fF[1], wSH, col(pal.suit));
-  blob(c, J.fF[0]+facing*2, J.fF[1], 9, 4, col(pal.trim));
-  limb(c, J.sF[0],J.sF[1], J.eF[0],J.eF[1], wUA, col(pal.suit));
-  limb(c, J.eF[0],J.eF[1], J.hF[0],J.hF[1], wFA, col(pal.skin));
-  blob(c, J.hF[0], J.hF[1], wFA+3, wFA+3, col(pal.skin));
+  /* front leg and front arm carry the key light */
+  limbShaded(c, hipF[0],hipF[1], J.kF[0],J.kF[1], wTH, suitF, lx, ly);
+  limbShaded(c, J.kF[0],J.kF[1], J.fF[0],J.fF[1], wSH, suitF, lx, ly);
+  blob(c, J.fF[0]+facing*2, J.fF[1], 9, 4, col(P.trimMid));
+  blob(c, J.fF[0]+facing*2, J.fF[1]-1, 7, 1, col(P.trimLit));
+  limbShaded(c, J.sF[0],J.sF[1], J.eF[0],J.eF[1], wUA, suitF, lx, ly);
+  limbShaded(c, J.eF[0],J.eF[1], J.hF[0],J.hF[1], wFA, skinF, lx, ly);
+  blob(c, J.hF[0], J.hF[1], wFA+3, wFA+3, col(P.skinMid));
+  blob(c, J.hF[0] + lx, J.hF[1] + ly, wFA, wFA, col(P.skinLit));
   return cv;
 }
 
@@ -1330,145 +1601,182 @@ function noiseSpeckle(ctx, x, y, w, h, color, count, rng){
     ctx.fillRect(x + rng() % w, y + rng() % h, 1, 1);
 }
 
+/* Three stages, built with the console's own toolkit: dithered gradients
+   instead of blends, silhouettes in flat tone steps, and detail deliberately
+   kept away from the band where the fighters stand. Atmospheric perspective
+   does the depth — distant shapes are lighter and bluer, near ones darker and
+   more saturated — which is how a 16-bit background reads as deep without
+   ever leaving the palette. */
 function buildStage(key){
   const rng = makeRNG(key.length * 7717 + 13);
   const far = newLayer(STAGE_W, H), near = newLayer(STAGE_W, H);
   const f = far.getContext("2d"), n = near.getContext("2d");
-  const FL = GROUND_Y;                       /* floor line */
-  let floorTop, floorBot, accent;
+  const FL = GROUND_Y;
+  let floorTop, floorMid, floorBot, accent;
+  const pick = a => a[rng() % a.length];
 
   if (key === "dockyard"){
-    accent = "#7fd8ff";
-    bands(f, 0, 0, STAGE_W, FL - 30, ["#2a2148","#3a2b58","#54386a","#7a4a72","#a5636f","#d08a6f","#e8ab74"]);
-    /* sea */
-    f.fillStyle = "#243a5e"; f.fillRect(0, FL - 42, STAGE_W, 26);
-    for (let i = 0; i < 220; i++){
-      const yy = FL - 42 + (rng() % 24);
-      f.fillStyle = (rng() % 3) ? "#3a5c86" : "#c8916a";
-      f.fillRect(rng() % STAGE_W, yy, 2 + (rng() % 5), 1);
+    accent = md("#7fd8ff");
+    /* Dusk, dithered through four hue steps rather than blended. */
+    ditherGradient(f, 0, 0, STAGE_W, 46, md("#241a4e"), md("#4a2a63"));
+    ditherGradient(f, 0, 46, STAGE_W, 44, md("#4a2a63"), md("#8a4668"));
+    ditherGradient(f, 0, 90, STAGE_W, 34, md("#8a4668"), md("#c8705c"));
+    ditherGradient(f, 0, 124, STAGE_W, 22, md("#c8705c"), md("#e8a86a"));
+    /* A low sun and its glow, dithered outward. */
+    const sunX = 250, sunY = 138;
+    for (let r = 30; r > 0; r -= 3)
+      ditherRect(f, sunX - r*2, sunY - r/2, r*4, r, null, md("#ffce90"), 1 - r/32);
+    f.fillStyle = md("#ffe9a8"); f.fillRect(sunX - 13, sunY - 4, 26, 9);
+
+    /* Distant cranes: pale and blue with distance. */
+    for (let i = 0; i < 9; i++){
+      const bx = 20 + i * 104 + (rng() % 50), bh = 40 + (rng() % 30);
+      f.fillStyle = md("#6a5a86");
+      f.fillRect(bx, FL - 44 - bh, 4, bh);
+      f.fillRect(bx - 22, FL - 44 - bh, 52, 3);
+      f.fillRect(bx + 24, FL - 44 - bh, 2, 12);
     }
-    /* distant cranes */
-    for (let i = 0; i < 7; i++){
-      const bx = 40 + i * 130 + (rng() % 40), bh = 46 + (rng() % 26);
-      f.fillStyle = "#1d2036";
-      f.fillRect(bx, FL - 42 - bh, 5, bh);
-      f.fillRect(bx - 26, FL - 42 - bh, 60, 4);
-      f.fillRect(bx + 26, FL - 42 - bh, 3, 14);
-      f.fillStyle = "#e8ab74";
-      f.fillRect(bx + 1, FL - 44 - bh, 3, 2);
+    /* Water, with a dithered band of reflected sun. */
+    ditherGradient(f, 0, FL - 44, STAGE_W, 28, md("#3a5c86"), md("#1e2f52"));
+    for (let i = 0; i < 260; i++){
+      const yy = FL - 44 + (rng() % 26);
+      const near_ = (yy - (FL - 44)) / 26;
+      f.fillStyle = (rng() % 5) ? md("#4a74a0") : md("#e8a86a");
+      f.fillRect(rng() % STAGE_W, yy, 2 + (rng() % (near_ > 0.5 ? 6 : 3)), 1);
     }
-    /* containers */
-    const cols = ["#b8442f","#2f6fb8","#c9a021","#3a8c5c","#7a3fa0"];
-    for (let i = 0; i < 26; i++){
-      const cw = 46 + (rng()%20), chh = 22, cx = (rng() % (STAGE_W - 60)), stack = 1 + (rng() % 3);
-      for (let s = 0; s < stack; s++){
-        const cy = FL - 18 - chh*(s+1);
-        n.fillStyle = "#14141f"; n.fillRect(cx-1, cy-1, cw+2, chh+2);
-        n.fillStyle = cols[rng() % cols.length]; n.fillRect(cx, cy, cw, chh);
-        n.fillStyle = "rgba(0,0,0,.22)";
-        for (let r = 4; r < cw - 3; r += 5) n.fillRect(cx + r, cy + 3, 2, chh - 6);
+
+    /* Containers, each a three-tone box with a lit top edge. */
+    const cols = ["#b8442f","#2f6fb8","#c9a021","#3a8c5c","#7a3fa0","#c25e1e"];
+    for (let i = 0; i < 30; i++){
+      const cw = 44 + (rng()%22), chh = 22, cx = (rng() % (STAGE_W - 60)), stack = 1 + (rng() % 3);
+      const R = ramp(pick(cols));
+      for (let s2 = 0; s2 < stack; s2++){
+        const cy = FL - 22 - chh*(s2+1);
+        n.fillStyle = md("#14141f"); n.fillRect(cx-1, cy-1, cw+2, chh+2);
+        n.fillStyle = R.sh;  n.fillRect(cx, cy, cw, chh);
+        n.fillStyle = R.mid; n.fillRect(cx, cy, cw, chh - 4);
+        n.fillStyle = R.lit; n.fillRect(cx, cy, cw, 2);
+        n.fillStyle = R.dk;
+        for (let r = 4; r < cw - 3; r += 5) n.fillRect(cx + r, cy + 3, 2, chh - 7);
       }
     }
-    /* shadowed dock wall, so the backdrop meets the floor instead of ending */
-    n.fillStyle = "#1b1420"; n.fillRect(0, FL - 20, STAGE_W, 22);
-    n.fillStyle = "#2a1f2c"; n.fillRect(0, FL - 20, STAGE_W, 3);
-    floorTop = "#6b4a30"; floorBot = "#3b2718";
+    /* The dock wall the fighters stand in front of: dark, so the sprites pop. */
+    ditherGradient(n, 0, FL - 24, STAGE_W, 26, md("#2a1f2c"), md("#140f18"));
+    n.fillStyle = md("#3a2c3e"); n.fillRect(0, FL - 24, STAGE_W, 2);
+    for (let x = 6; x < STAGE_W; x += 48){
+      n.fillStyle = md("#241a26"); n.fillRect(x, FL - 22, 5, 22);
+    }
+    floorTop = md("#7a5636"); floorMid = md("#5a3e26"); floorBot = md("#2e1e14");
   }
   else if (key === "foundry"){
-    accent = "#ffb347";
-    bands(f, 0, 0, STAGE_W, FL - 20, ["#1d1218","#24141a","#31171c","#401c1e","#522420","#6b2f22"]);
-    /* roof trusses and hanging lamps, so the top half is not dead space */
-    f.fillStyle = "#0e0a10";
-    f.fillRect(0, 8, STAGE_W, 7);
-    for (let x = 0; x < STAGE_W; x += 26){
-      f.fillRect(x, 15, 3, 10);
-      f.fillRect(x, 24, 26, 3);
-    }
+    accent = md("#ffb347");
+    ditherGradient(f, 0, 0, STAGE_W, 60, md("#160f18"), md("#2a1620"));
+    ditherGradient(f, 0, 60, STAGE_W, 60, md("#2a1620"), md("#4a2020"));
+    ditherGradient(f, 0, 120, STAGE_W, FL - 140, md("#4a2020"), md("#6e2e1e"));
+    /* Roof trusses and lamps with dithered light cones. */
+    f.fillStyle = md("#100b12"); f.fillRect(0, 8, STAGE_W, 7);
+    for (let x = 0; x < STAGE_W; x += 26){ f.fillRect(x, 15, 3, 10); f.fillRect(x, 24, 26, 3); }
     for (let i = 0; i < 12; i++){
       const lx = 34 + i * 74;
-      f.fillStyle = "#0e0a10"; f.fillRect(lx, 27, 2, 14);          /* chain */
-      f.fillStyle = "#241820"; f.fillRect(lx - 7, 41, 16, 5);      /* shade */
-      f.fillStyle = "#ffd98a"; f.fillRect(lx - 4, 46, 10, 2);      /* filament */
-      f.fillStyle = "rgba(255,190,90,.10)";
-      for (let k = 0; k < 5; k++) f.fillRect(lx - 5 - k*4, 48 + k*7, 12 + k*8, 7);
+      for (let k = 0; k < 4; k++)
+        ditherRect(f, lx - 6 - k*4, 46 + k*8, 14 + k*8, 8, null, md("#ffb347"), 0.34 - k*0.07);
+      f.fillStyle = md("#100b12"); f.fillRect(lx, 27, 2, 14);
+      f.fillStyle = md("#2a1c22"); f.fillRect(lx - 7, 41, 16, 5);
+      f.fillStyle = md("#ffe9a8"); f.fillRect(lx - 4, 46, 10, 2);
     }
-    /* furnace mouths glowing */
+    /* Furnace mouths: concentric dithered heat rather than hard rings. */
     for (let i = 0; i < 6; i++){
-      const bx = 60 + i * 145, by = FL - 96;
-      f.fillStyle = "#0d0810"; f.fillRect(bx - 30, by, 76, 78);
-      for (let g = 0; g < 7; g++){
-        f.fillStyle = ["#3a1408","#5c1e08","#8a2f08","#c4550c","#ee8a18","#ffcc44","#ffe9a8"][g];
-        f.fillRect(bx - 20 + g*2, by + 26 + g*2, 56 - g*4, 44 - g*4);
+      const bx = 60 + i * 145, by = FL - 100;
+      f.fillStyle = md("#0d0810"); f.fillRect(bx - 32, by, 78, 82);
+      const heat = ["#3a1408","#6e2208","#a83a0a","#d4600c","#ffa020","#ffe9a8"];
+      for (let g = 0; g < heat.length; g++){
+        const inset = g * 4;
+        f.fillStyle = md(heat[g]);
+        f.fillRect(bx - 24 + inset, by + 26 + inset, 62 - inset*2, 48 - inset*2);
+        /* a single dithered row where each step meets the next, so the rings
+           blend without turning the whole mouth into speckle */
+        if (g < heat.length - 1)
+          ditherRect(f, bx - 24 + inset, by + 26 + inset, 62 - inset*2, 2,
+                     null, md(heat[g + 1]), 0.5);
       }
     }
-    /* girders */
-    n.fillStyle = "#1a1a24";
-    for (let i = 0; i < 14; i++) n.fillRect(i*68, FL - 130, 9, 118);
-    n.fillRect(0, FL - 134, STAGE_W, 8);
-    n.fillStyle = "#2a2a38";
-    for (let i = 0; i < 14; i++) n.fillRect(i*68 + 2, FL - 130, 3, 118);
-    n.fillStyle = "#3a3a4c";
-    for (let i = 0; i < 14; i++){ n.fillRect(i*68 - 4, FL - 128, 17, 3); n.fillRect(i*68 - 4, FL - 74, 17, 3); }
-    /* molten channel behind the fighters */
-    n.fillStyle = "#14141f"; n.fillRect(0, FL - 16, STAGE_W, 6);
-    n.fillStyle = "#ff8c1a"; n.fillRect(0, FL - 15, STAGE_W, 4);
-    noiseSpeckle(n, 0, FL - 15, STAGE_W, 4, "#ffe9a8", 400, rng);
-    floorTop = "#3c3742"; floorBot = "#1a1820";
+    /* Girders, three tones so they read as steel and not cardboard. */
+    for (let i = 0; i < 14; i++){
+      const gx = i*68;
+      n.fillStyle = md("#14141c"); n.fillRect(gx - 1, FL - 132, 11, 122);
+      n.fillStyle = md("#2e2e3c"); n.fillRect(gx, FL - 132, 9, 122);
+      n.fillStyle = md("#4a4a5e"); n.fillRect(gx + 1, FL - 132, 3, 122);
+      n.fillStyle = md("#5e5e74");
+      n.fillRect(gx - 5, FL - 128, 19, 3); n.fillRect(gx - 5, FL - 74, 19, 3);
+    }
+    n.fillStyle = md("#14141c"); n.fillRect(0, FL - 138, STAGE_W, 9);
+    /* Molten channel, glowing up into the dark. */
+    ditherGradient(n, 0, FL - 26, STAGE_W, 20, md("#1a1016"), md("#4a1e10"));
+    n.fillStyle = md("#14141f"); n.fillRect(0, FL - 8, STAGE_W, 4);
+    ditherRect(n, 0, FL - 6, STAGE_W, 5, md("#d4600c"), md("#ffa020"), 0.5);
+    noiseSpeckle(n, 0, FL - 6, STAGE_W, 5, md("#ffe9a8"), 340, rng);
+    floorTop = md("#4a4456"); floorMid = md("#302c3a"); floorBot = md("#16141c");
   }
   else { /* neon */
-    accent = "#25f0d0";
-    bands(f, 0, 0, STAGE_W, FL - 6, ["#08061c","#100a2c","#191040","#28154e","#3c1c56","#57235a","#7c3057"]);
-    /* far skyline: flat silhouettes only, so the near towers read as nearer */
-    for (let i = 0; i < 44; i++){
-      const bw = 24 + (rng()%52), bh = 26 + (rng()%62), bx = (rng() % (STAGE_W - 40));
-      f.fillStyle = "#180f32";
-      f.fillRect(bx, FL - 26 - bh, bw, bh + 26);
+    accent = md("#25f0d0");
+    ditherGradient(f, 0, 0, STAGE_W, 70, md("#0a0620"), md("#181048"));
+    ditherGradient(f, 0, 70, STAGE_W, 60, md("#181048"), md("#3a1a5e"));
+    ditherGradient(f, 0, 130, STAGE_W, FL - 140, md("#3a1a5e"), md("#8a2f56"));
+    /* Far skyline: light and hazy, no detail — distance. */
+    for (let i = 0; i < 46; i++){
+      const bw = 24 + (rng()%52), bh = 26 + (rng()%60), bx = (rng() % (STAGE_W - 40));
+      f.fillStyle = md("#2e1f52"); f.fillRect(bx, FL - 30 - bh, bw, bh + 30);
     }
-    /* near towers, lit edge and window grid */
+    ditherRect(f, 0, FL - 64, STAGE_W, 40, null, md("#5e2f6e"), 0.35);
+    /* Near towers: darker, lit windows, a lit edge down the near side. */
     for (let i = 0; i < 18; i++){
       const bw = 40 + (rng()%38), bh = 58 + (rng()%80), bx = (rng() % (STAGE_W - 52));
-      const top = FL - 24 - bh;
-      n.fillStyle = "#0b0818"; n.fillRect(bx - 1, top - 1, bw + 2, bh + 26);
-      n.fillStyle = "#1b1636"; n.fillRect(bx, top, bw, bh + 24);
-      n.fillStyle = "#282249"; n.fillRect(bx, top, 3, bh + 24);
-      n.fillStyle = "#100c22"; n.fillRect(bx + bw - 3, top, 3, bh + 24);
-      for (let wy = top + 6; wy < FL - 30; wy += 8)
+      const top = FL - 26 - bh;
+      n.fillStyle = md("#08061a"); n.fillRect(bx - 1, top - 1, bw + 2, bh + 28);
+      n.fillStyle = md("#181236"); n.fillRect(bx, top, bw, bh + 26);
+      n.fillStyle = md("#2a2050"); n.fillRect(bx, top, 3, bh + 26);
+      for (let wy = top + 6; wy < FL - 32; wy += 8)
         for (let wx = bx + 5; wx < bx + bw - 5; wx += 7)
           if (rng() % 3 === 0){
-            n.fillStyle = (rng()%4) ? "#f2d98a" : "#7fe8ff";
+            n.fillStyle = (rng()%4) ? md("#f2d98a") : md("#7fe8ff");
             n.fillRect(wx, wy, 3, 4);
           }
     }
-    /* hanging neon banners */
+    /* Signs, each with a dithered halo — the closest the hardware got to bloom. */
     const neons = ["#ff3d8b","#25f0d0","#ffd93d","#8a5cff","#4dd2ff"];
     for (let i = 0; i < 14; i++){
-      const cx = 26 + i*62 + (rng()%22), cy = FL - 100 - (rng()%44);
-      const col = neons[rng() % neons.length], wdt = 7 + (rng()%4), hgt = 26 + (rng()%22);
-      n.fillStyle = "rgba(255,255,255,.06)"; n.fillRect(cx - 4, cy - 4, wdt + 8, hgt + 8);
-      n.fillStyle = "#0b0818"; n.fillRect(cx - 1, cy - 1, wdt + 2, hgt + 2);
+      const cx = 26 + i*62 + (rng()%22), cy = FL - 104 - (rng()%40);
+      const col = md(pick(neons)), wdt = 7 + (rng()%4), hgt = 26 + (rng()%22);
+      ditherRect(n, cx - 4, cy - 4, wdt + 8, hgt + 8, null, col, 0.16);
+      ditherRect(n, cx - 2, cy - 2, wdt + 4, hgt + 4, null, col, 0.42);
+      n.fillStyle = md("#08061a"); n.fillRect(cx - 1, cy - 1, wdt + 2, hgt + 2);
       n.fillStyle = col; n.fillRect(cx, cy, wdt, hgt);
-      n.fillStyle = "rgba(255,255,255,.55)"; n.fillRect(cx + 1, cy + 1, 2, hgt - 2);
-      n.fillStyle = "rgba(0,0,0,.34)";
-      for (let t = 5; t < hgt - 2; t += 6) n.fillRect(cx, cy + t, wdt, 2);
+      n.fillStyle = "#ffffff"; n.fillRect(cx + 1, cy + 1, 2, hgt - 2);
+      n.fillStyle = md("#08061a");
+      for (let t = 7; t < hgt - 3; t += 9) n.fillRect(cx, cy + t, wdt, 2);
     }
-    /* street-level wall and its reflected glow */
-    n.fillStyle = "#07091a"; n.fillRect(0, FL - 24, STAGE_W, 26);
-    n.fillStyle = "#161d38"; n.fillRect(0, FL - 24, STAGE_W, 3);
+    /* Street level: dark, with the signs bleeding onto the wet wall. */
+    ditherGradient(n, 0, FL - 26, STAGE_W, 28, md("#0e1226"), md("#05060f"));
+    n.fillStyle = md("#1a2244"); n.fillRect(0, FL - 26, STAGE_W, 2);
     for (let x = 8; x < STAGE_W; x += 46){
-      n.fillStyle = "rgba(37,240,208,.30)"; n.fillRect(x, FL - 18, 18, 2);
-      n.fillStyle = "rgba(255,61,139,.22)"; n.fillRect(x + 24, FL - 12, 12, 2);
+      ditherRect(n, x, FL - 20, 20, 3, null, md("#25f0d0"), 0.5);
+      ditherRect(n, x + 26, FL - 13, 14, 3, null, md("#ff3d8b"), 0.35);
     }
-    floorTop = "#20222e"; floorBot = "#0e0f16";
+    floorTop = md("#242838"); floorMid = md("#161a26"); floorBot = md("#0a0c14");
   }
 
-  /* floor is shared geometry; only the palette changes per stage */
+  /* The floor: a dithered gradient away from the camera, a scuff texture, and
+     a bright lip at the ground line so the fighters have something to stand on. */
   const floor = newLayer(STAGE_W, H - FL + 10);
   const fc = floor.getContext("2d");
-  bands(fc, 0, 0, STAGE_W, H - FL + 10, [floorTop, floorTop, floorBot]);
-  fc.fillStyle = "rgba(0,0,0,.35)";
-  for (let x = 0; x < STAGE_W; x += 16) fc.fillRect(x, 0, 1, H - FL + 10);
-  for (let y = 4; y < H - FL + 10; y += 6) fc.fillRect(0, y, STAGE_W, 1);
-  fc.fillStyle = "#14141f"; fc.fillRect(0, 0, STAGE_W, 2);
+  const fh = H - FL + 10;
+  ditherGradient(fc, 0, 0, STAGE_W, Math.round(fh * 0.55), floorTop, floorMid);
+  ditherGradient(fc, 0, Math.round(fh * 0.55), STAGE_W, fh - Math.round(fh * 0.55), floorMid, floorBot);
+  fc.fillStyle = "rgba(0,0,0,.30)";
+  for (let x = 0; x < STAGE_W; x += 16) fc.fillRect(x, 0, 1, fh);
+  noiseSpeckle(fc, 0, 3, STAGE_W, fh - 4, floorBot, 700, rng);
+  fc.fillStyle = md("#14141f"); fc.fillRect(0, 0, STAGE_W, 2);
+  fc.fillStyle = floorTop; fc.fillRect(0, 2, STAGE_W, 1);
 
   return { far, near, floor, accent, floorY: FL };
 }

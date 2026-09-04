@@ -358,6 +358,39 @@ ok("a drawn round still advances",         rounds.doubleKOSettled.round === 2);
 ok("a single KO awards the survivor",      rounds.singleKO.p0survives === 0 && rounds.singleKO.p1survives === 1);
 eq("no KO leaves the round running",       rounds.noKO, 1);
 
+group("Colour discipline");
+const colour = await page.evaluate(() => {
+  const probe = document.createElement("canvas");
+  probe.width = SPRITE_W; probe.height = SPRITE_H;
+  const pc = probe.getContext("2d", { willReadFrequently:true });
+  const out = { offPalette:0, overBudget:[], rampCollisions:[], offHardware:0, sizes:[] };
+  for (const ch of CHARACTERS){
+    const allowed = new Set(Object.values(ch.p16));
+    out.sizes.push(allowed.size);
+    if (allowed.size > 16) out.overBudget.push(ch.key + ":" + allowed.size);
+    for (const key of ["skin","suit","hair","trim","belt"])
+      if (!rampIsDistinct(ramp(ch.pal[key]))) out.rampCollisions.push(ch.key + "." + key);
+    /* Every pixel of every pose must come from that character's sixteen. */
+    for (const name in POSE){
+      pc.clearRect(0, 0, SPRITE_W, SPRITE_H);
+      pc.drawImage(getSprite(ch, POSE[name], 1, null), 0, 0);
+      const d = pc.getImageData(0, 0, SPRITE_W, SPRITE_H).data;
+      for (let i = 0; i < d.length; i += 4){
+        if (d[i+3] < 8) continue;
+        const hex = "#" + [d[i],d[i+1],d[i+2]].map(v => v.toString(16).padStart(2,"0")).join("");
+        if (!allowed.has(hex)) out.offPalette++;
+        /* and must be one of the console's 512 */
+        for (const v of [d[i], d[i+1], d[i+2]]) if (!MD_LEVELS.includes(v)) out.offHardware++;
+      }
+    }
+  }
+  return out;
+});
+eq("every sprite pixel is in the character's palette", colour.offPalette, 0);
+eq("every colour exists on the hardware",              colour.offHardware, 0);
+ok("no character exceeds sixteen colours",             colour.overBudget.length === 0);
+ok("every tone ramp survives quantisation",            colour.rampCollisions.length === 0);
+
 /* ------------------------------------------------------------ input path -- */
 group("Input");
 const input = await page.evaluate(() => {

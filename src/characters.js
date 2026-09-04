@@ -50,7 +50,11 @@ const CHARACTERS = [
   blurb:"Walks like a cement mixer and hits like one. A command grab that goes straight through guard, and enough health to walk into range.",
   hp:1150, walkF:222, walkB:180, jumpV:1330, jumpX:250, scale:1.12, bulk:2,
   stageKey:"foundry",
-  pal:{ skin:"#d99a72", skinS:"#a46a48", skinB:"#78482f", suit:"#c8452e", suitS:"#8c2a1c",
+  /* A deeper red than it looks like it wants to be: at the top of its ramp a
+     mid red lightens into salmon and lands on top of his own skin tones, so
+     the overalls read as bare arms. Starting darker keeps the whole ramp
+     clearly outfit-coloured. */
+  pal:{ skin:"#cf9464", skinS:"#a46a48", skinB:"#78482f", suit:"#a82a22", suitS:"#8c2a1c",
         trim:"#3a3a46", hair:"#2a2a32", belt:"#5a4a32", glow:"#ffb347", eye:"#20202c" },
   specials:[
     { key:"rush", check:(mb,b)=> (b & PUNCHES) && mb.qcf(),
@@ -106,6 +110,9 @@ const CHARACTERS = [
       poses:[POSE.superHold,POSE.spin1,POSE.spin2], hit:{x:4,y:-58,w:34,h:40} }) }
 }
 ];
+
+/* Each fighter's sixteen colours, derived once from its base hues. */
+for (const c of CHARACTERS) c.p16 = characterPalette(c.pal);
 
 const CHAR_BY_KEY = {};
 for (const c of CHARACTERS) CHAR_BY_KEY[c.key] = c;

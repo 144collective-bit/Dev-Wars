@@ -23,6 +23,7 @@ const SRC = resolve(ROOT, "src");
    driven. Anything evaluated at load time must come after what it reads. */
 const MODULES = [
   "config",      /* tunables, world constants, input bits, shared helpers   */
+  "palette",     /* Mega Drive colour, tone ramps, ordered dithering        */
   "input",       /* bindings, saved settings, keyboard, gamepad, touch      */
   "rig",         /* poses and animation data                               */
   "hurtboxes",   /* what can be hit, per pose (generated)                  */
