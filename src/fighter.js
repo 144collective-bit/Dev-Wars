@@ -70,8 +70,14 @@ class Fighter {
   get py(){ return this.y / FP; }
 
   pose(){
-    if (this.state === S.ATTACK && this.move) return animPose(this.move.anim, this.stateFrame);
-    return animPose(this.anim, this.animFrame);
+    const p = (this.state === S.ATTACK && this.move)
+      ? animPose(this.move.anim, this.stateFrame)
+      : animPose(this.anim, this.animFrame);
+    /* A character may replace individual frames of the shared rig — a
+       distinctive stance is most of what makes a fighter feel like itself,
+       and it costs no extra sheet cells because each character has its own. */
+    const over = this.ch.poses;
+    return (over && over[p.$name]) || p;
   }
   setAnim(a){ if (this.anim !== a){ this.anim = a; this.animFrame = 0; } }
   setState(st, anim){
@@ -107,8 +113,14 @@ class Fighter {
     if (this.hitCount >= m.maxHits) return null;
     const sc = this.scale, wx = this.px, wy = GROUND_Y - this.py;
     const h = m.hit;
-    const x = this.facing > 0 ? wx + h.x * sc : wx - (h.x + h.w) * sc;
-    return { x, y: wy + h.y * sc, w: h.w * sc, h: h.h * sc };
+    /* Weapon reach. Defaults to exactly 1, and multiplying by 1 is exact in
+       floating point, so every existing fighter's hitboxes are bit-identical
+       and the golden replays are untouched. */
+    const rr = (m.type === "normal" && (m.id[0] === "s" || m.id[0] === "c" || m.id[0] === "j")
+                && /P$/.test(m.id)) ? (this.ch.reach || 1) : 1;
+    const w = h.w * sc * rr;
+    const x = this.facing > 0 ? wx + h.x * sc : wx - (h.x * sc + w);
+    return { x, y: wy + h.y * sc, w, h: h.h * sc };
   }
   isInvulnerable(){
     if (this.invuln > 0) return true;

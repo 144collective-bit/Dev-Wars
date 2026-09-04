@@ -192,10 +192,17 @@ function ditherGradient(ctx, x, y, w, h, top, bottom, steps){
    tests. */
 const OUTLINE = "#14141f";
 
-function characterPalette(pal){
+function characterPalette(pal, opts){
+  opts = opts || {};
   const skin = ramp(pal.skin), suit = ramp(pal.suit),
         hair = ramp(pal.hair), trim = ramp(pal.trim);
-  return {
+  /* A character with an extra material — a hat, a weapon, a second garment —
+     has to buy the slot from somewhere. Dropping trim to a single tone pays
+     for it: a small part reads fine flat, where the outfit carrying the form
+     does not. */
+  const extra = {};
+  if (opts.accent) extra.accent = md(opts.accent);
+  if (opts.trimTones === 1) return Object.assign({
     /* 1  outline, doubling as the eye — near-black twice over is a colour
        a sprite this size cannot afford to spend */
     line:    md(OUTLINE),
@@ -206,10 +213,21 @@ function characterPalette(pal){
     suitLit: suit.lit, suitHi:  suit.hi,
     /* 3  hair */
     hairDk:  hair.dk,  hairMid: hair.mid, hairLit: hair.lit,
+    /* 1  boots, gloves, belt — flat */
+    trimMid: trim.mid, trimLit: trim.mid,
+    /* 1  the cool rim that lifts the silhouette off the background */
+    rim:     suit.rim
+  }, extra);
+  return Object.assign({
+    line:    md(OUTLINE),
+    skinDk:  skin.sh,  skinMid: skin.mid, skinLit: skin.lit, skinHi:  skin.hi,
+    suitDk:  suit.dk,  suitSh:  suit.sh,  suitMid: suit.mid,
+    suitLit: suit.lit, suitHi:  suit.hi,
+    hairDk:  hair.dk,  hairMid: hair.mid, hairLit: hair.lit,
     /* 2  boots, gloves, belt */
     trimMid: trim.mid, trimLit: trim.lit,
     /* 1  the cool rim that lifts the silhouette off the background */
     rim:     suit.rim
-  };
+  }, extra);
 }
 const paletteSize = p => new Set(Object.values(p)).size;
