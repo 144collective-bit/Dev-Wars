@@ -104,6 +104,52 @@ halfway through.
 The cost of forgetting to bump it is a silent desync; the cost of bumping it
 unnecessarily is one refresh. Bump it whenever you change the file.
 
+## Development
+
+```
+npm install          # Playwright, for the headless test browser
+npm test             # behavioural tests, then the golden replays
+npm run build        # derive dist/fighter-artifact.html from fighter.html
+```
+
+There is no build step for the game itself — `fighter.html` is the
+deliverable, edited directly. `npm run build` only derives the Artifact
+variant, which is the same page with the document wrapper stripped because
+the Artifact host supplies its own.
+
+### The two test suites do different jobs
+
+**`tests/behaviour.mjs`** asserts that the rules are *right*: what blocks
+what, that a throw goes through a guard, that a connected light cancels into
+a special, that lockstep peers never diverge, that mismatched versions refuse
+to play. Read it as the specification.
+
+**`tests/golden.mjs`** asserts that nothing *changed*. Each scenario replays a
+fixed input script, folding every frame of simulation state — positions,
+velocities, hurtboxes, hitboxes, projectiles — into a rolling hash, recorded
+every 60 frames in `tests/golden.json`. Any drift fails and names the frame it
+started at.
+
+Every frame is folded in, not every sixtieth. Sampling periodically lets a
+transient difference slip between the samples, and the first version of this
+suite did exactly that: moving one joint of one pose by a single pixel
+changed a hurtbox, and every scenario still passed. That is the precise class
+of change the suite exists to catch, so it now hashes continuously.
+
+### When a golden fails
+
+Decide whether you meant it.
+
+- **You did not** — you have found a real regression. Fix it.
+- **You did** — re-record with `npm run test:record`, review the diff to
+  `tests/golden.json`, and **bump `GAME_VERSION`**. An intended simulation
+  change is still a change that makes this build incompatible with the last
+  one online.
+
+Art edits count. Hurtboxes are currently derived from the rig's joint
+positions, so changing a pose to look better also changes where that fighter
+can be hit.
+
 ## Tuning the game
 
 Everything is in one file and grouped by section:
