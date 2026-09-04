@@ -39,7 +39,15 @@ const out = await page.evaluate(({ CELL, COLS, ROWS, OX, OY, LAYOUT, ROW_LABELS 
   const W = CELL * COLS, H = CELL * ROWS;
   const missing = [];
   for (const row of LAYOUT) for (const n of row) if (n && !POSE[n]) missing.push(n);
-  const unplaced = Object.keys(POSE).filter(n => !LAYOUT.some(r => r.includes(n)));
+  /* A pose used only as a per-character override does not get a cell of its
+     own: it replaces that character's existing cell, on that character's own
+     sheet. Sommi's slouch is cell 00 on his sheet and the shared idle is cell
+     00 on everyone else's. */
+  const overrides = new Set();
+  for (const ch of CHARACTERS)
+    for (const k in (ch.poses || {})) overrides.add(ch.poses[k].$name);
+  const unplaced = Object.keys(POSE)
+    .filter(n => !LAYOUT.some(r => r.includes(n)) && !overrides.has(n));
 
   const sheet = (draw) => {
     const cv = document.createElement("canvas");
@@ -59,7 +67,8 @@ const out = await page.evaluate(({ CELL, COLS, ROWS, OX, OY, LAYOUT, ROW_LABELS 
         const name = LAYOUT[r][i];
         if (!name) continue;
         const { x, y } = cellAt(r, i);
-        const spr = getSprite(ch, POSE[name], 1, null);
+        const pose = (ch.poses && ch.poses[name]) || POSE[name];
+        const spr = getSprite(ch, pose, 1, null);
         c.drawImage(spr, x + OX - SPRITE_OX, y + OY - SPRITE_OY);
       }
     });

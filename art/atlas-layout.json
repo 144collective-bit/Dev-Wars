@@ -631,6 +631,46 @@
     "spin1",
     "spin2"
    ]
+  },
+  "Spoon Flick": {
+   "startup": 10,
+   "active": 2,
+   "recovery": 26,
+   "frames": [
+    "jabStart",
+    "lance",
+    "lance"
+   ]
+  },
+  "Slipper Rise": {
+   "startup": 4,
+   "active": 12,
+   "recovery": 26,
+   "frames": [
+    "riseWind",
+    "fang",
+    "fang"
+   ]
+  },
+  "Sock Slide": {
+   "startup": 9,
+   "active": 10,
+   "recovery": 26,
+   "frames": [
+    "sweepWind",
+    "sweep",
+    "sweepWind"
+   ]
+  },
+  "Full Service": {
+   "startup": 11,
+   "active": 24,
+   "recovery": 32,
+   "frames": [
+    "superHold",
+    "straight",
+    "jab"
+   ]
   }
  }
 }
