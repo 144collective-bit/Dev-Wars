@@ -1,0 +1,68 @@
+name: CI
+
+# Tests run on every push and pull request. The live site only publishes from
+# main, and only after the suite passes — a red build can never reach players.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build check, behaviour, goldens
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Install the test browser
+        run: npx playwright install --with-deps chromium
+      - name: Run the suite
+        run: npm test
+
+  deploy:
+    name: Publish to GitHub Pages
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    # Never cancel a half-finished deploy; let it land, then queue the next.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable Pages if it is not already on
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      # fighter.html is the deliverable; Pages wants an index. Copying at
+      # deploy time keeps a second identical copy out of the repository.
+      - name: Assemble the site
+        run: |
+          mkdir -p _site
+          cp fighter.html _site/index.html
+          cp fighter.html _site/fighter.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - uses: actions/deploy-pages@v4
+        id: deployment
