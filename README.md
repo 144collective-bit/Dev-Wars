@@ -108,14 +108,35 @@ unnecessarily is one refresh. Bump it whenever you change the file.
 
 ```
 npm install          # Playwright, for the headless test browser
-npm test             # behavioural tests, then the golden replays
-npm run build        # derive dist/fighter-artifact.html from fighter.html
+npm run build        # src/ -> fighter.html and dist/fighter-artifact.html
+npm test             # build check, behavioural tests, golden replays
 ```
 
-There is no build step for the game itself — `fighter.html` is the
-deliverable, edited directly. `npm run build` only derives the Artifact
-variant, which is the same page with the document wrapper stripped because
-the Artifact host supplies its own.
+**Edit `src/`, never `fighter.html`.** The deployable page is generated;
+`npm test` starts with `build --check` and fails if the two have drifted.
+
+| | |
+|---|---|
+| `src/shell.html` | Markup, styles, and the `//__BUNDLE__` marker |
+| `src/config.js` | Tunables, world constants, input bits, helpers |
+| `src/input.js` | Bindings, saved settings, keyboard, gamepad, touch |
+| `src/rig.js` | Poses and animation data |
+| `src/moves.js` · `characters.js` | Frame data and the roster |
+| `src/font.js` · `sprites.js` · `stages.js` | Everything that draws |
+| `src/fighter.js` · `game.js` | Fighter state and the simulation |
+| `src/audio.js` · `render.js` | Sound and the per-frame draw |
+| `src/ai.js` · `net.js` · `ui.js` | CPU, netcode, menus and main loop |
+
+The modules are **plain scripts concatenated into one inline `<script>`**, not
+ES modules. They share a single top-level scope, exactly as they did when this
+was one file, so every declaration stays visible to every other module with no
+export bookkeeping and the shipped page carries no module semantics. The price
+is that **order matters** — top-level `const` and `let` are not hoisted across
+files — so `MODULES` in `tools/build.mjs` is the load order, and a new module
+gets placed deliberately rather than dropped into a folder.
+
+The split was verified by rebuilding and diffing: the generated `fighter.html`
+came out byte-identical to the single file it replaced.
 
 ### The two test suites do different jobs
 
