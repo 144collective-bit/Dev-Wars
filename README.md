@@ -121,6 +121,7 @@ npm test             # build check, behavioural tests, golden replays
 | `src/config.js` | Tunables, world constants, input bits, helpers |
 | `src/input.js` | Bindings, saved settings, keyboard, gamepad, touch |
 | `src/rig.js` | Poses and animation data |
+| `src/hurtboxes.js` | What can be hit, per pose (generated) |
 | `src/moves.js` · `characters.js` | Frame data and the roster |
 | `src/font.js` · `sprites.js` · `stages.js` | Everything that draws |
 | `src/fighter.js` · `game.js` | Fighter state and the simulation |
@@ -167,23 +168,28 @@ Decide whether you meant it.
   change is still a change that makes this build incompatible with the last
   one online.
 
-Art edits count. Hurtboxes are currently derived from the rig's joint
-positions, so changing a pose to look better also changes where that fighter
-can be hit.
+Art edits no longer count. Hurtboxes live in `src/hurtboxes.js` rather than
+being derived from the rig, so moving a joint changes only the drawing —
+verified by moving one and watching all eight scenarios still pass. Editing
+`src/hurtboxes.js` is the deliberate gameplay change, and all eight fail when
+you make one.
 
 ## Tuning the game
 
-Everything is in one file and grouped by section:
-
-- `POSE` / `ANIM` — the jointed rig. A pose is a set of joint positions in
+- `src/rig.js` — `POSE` and `ANIM`. A pose is a set of joint positions in
   low-res pixels; the renderer draws chunky pixel limbs between them and
-  caches the result, so editing a number changes the art immediately.
-- `NORMALS` — frame data for every normal move: startup, active, recovery,
-  damage, hitstun, blockstun, hitbox.
-- `CHARACTERS` — palettes, proportions, walk speeds, health, and each
+  caches the result, so editing a number changes the art immediately, and
+  changes *only* the art.
+- `src/hurtboxes.js` — what can be hit, one rectangle set per pose, in rig
+  space. Baked once by `tools/bake-hurtboxes.mjs` from the formula this used
+  to be derived from; edited by hand from here on. This is gameplay data, not
+  art data.
+- `src/moves.js` — `NORMALS`, the frame data for every normal move: startup,
+  active, recovery, damage, hitstun, blockstun, hitbox.
+- `src/characters.js` — palettes, proportions, walk speeds, health, and each
   fighter's specials and super.
-- `Game` — the simulation. Integer-only by design; keep it that way or online
-  play will desync.
+- `src/game.js` — the simulation. Integer-only by design; keep it that way or
+  online play will desync.
 
 ## Known limits
 
