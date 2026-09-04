@@ -109,10 +109,52 @@ const CHARACTERS = [
       maxHits:6, rehit:4, invuln:8, knockdown:true, moveX:480, sfx:"super",
       poses:[POSE.superHold,POSE.spin1,POSE.spin2], hit:{x:4,y:-58,w:34,h:40} }) }
 }
+,
+{
+  key:"sommi", name:"Sommi", role:"Zoner",
+  blurb:"Longest reach in the game, on the end of a spoon. Walks backwards faster than he walks forwards, so he wins by making you come to him — and punishes you for arriving.",
+  hp:940, walkF:246, walkB:300, jumpV:1360, jumpX:235, scale:1.08, bulk:-1,
+  /* The spoon. Applies to punches only, and defaults to 1 for everyone else. */
+  reach:1.22,
+  stageKey:"neon",
+  pal:{ skin:"#e0b088", skinS:"#a87a52", skinB:"#7e5636", suit:"#8a8072", suitS:"#5e564c",
+        trim:"#6e6558", hair:"#8a5a30", belt:"#4a4238", glow:"#ffd23d", eye:"#20202c" },
+  /* Materials the other three do not have. The hat is his one loud colour and
+     has to carry him, since a grey hoodie disappears against concrete. */
+  extras:{ hat:{ hex:"#ffd23d", tones:3 },
+           pants:{ hex:"#3f5f86", tones:3 },
+           paw:{ hex:"#9a6438", tones:3 },
+           spoon:{ hex:"#b4b8c0", tones:2 } },
+  gear:{ hat:true, ears:true, beard:true, hood:true, bigFeet:true, weapon:"spoon" },
+  poses:{ idle1:POSE.sommiIdle1, idle2:POSE.sommiIdle2, idle3:POSE.sommiIdle3 },
+  specials:[
+    { key:"flick", check:(mb,b)=> (b & PUNCHES) && mb.qcb(),
+      make:(b)=> sp({ id:"flick_"+b, name:"Spoon Flick", startup:10, active:2, recovery:26,
+        dmg:0, sfx:"fire", poses:[POSE.jabStart,POSE.lance,POSE.lance], hit:null,
+        proj:{ kind:"bolt", vx: b===IN_LP?520:b===IN_MP?620:720, dmg:8, chip:3,
+               hitstun:14, blockstun:11, w:14, h:12, oy:-44, ox:22, pushHit:420 } }) },
+    { key:"slipper", check:(mb,b)=> (b & KICKS) && mb.dp(),
+      make:(b)=> sp({ id:"slipper_"+b, name:"Slipper Rise", startup:4, active:12, recovery:26,
+        dmg: b===IN_LK?14:b===IN_MK?16:18, hitstun:20, blockstun:13, chip:3,
+        knockdown:true, launch:880, invuln: b===IN_LK?5:7, moveX:200, moveY:1330,
+        air:true, sfx:"kick", poses:[POSE.riseWind,POSE.fang,POSE.fang],
+        hit:{x:0,y:-80,w:26,h:44} }) },
+    { key:"slide", check:(mb,b)=> (b & KICKS) && mb.hcf(),
+      make:(b)=> sp({ id:"slide_"+b, name:"Sock Slide", level:"low", startup:9, active:10,
+        recovery:26, dmg:13, hitstun:17, blockstun:12, chip:3, knockdown:true,
+        moveX: b===IN_LK?420:b===IN_MK?520:620, pushHit:560, sfx:"sweep",
+        poses:[POSE.sweepWind,POSE.sweep,POSE.sweepWind], hit:{x:12,y:-12,w:32,h:12} }) }
+  ],
+  super:{ key:"service", name:"Full Service", check:(mb,b)=> (b & PUNCHES) && mb.doubleQcf(),
+    make:()=> sp({ id:"super_service", name:"Full Service", type:"super",
+      startup:11, active:24, recovery:32, dmg:8, hitstun:13, blockstun:10, chip:2,
+      maxHits:6, rehit:5, invuln:9, knockdown:true, moveX:330, sfx:"super",
+      poses:[POSE.superHold,POSE.straight,POSE.jab], hit:{x:14,y:-58,w:38,h:26} }) }
+}
 ];
 
-/* Each fighter's sixteen colours, derived once from its base hues. */
-for (const c of CHARACTERS) c.p16 = characterPalette(c.pal);
+/* Each fighter's palette, derived once from its base hues. */
+for (const c of CHARACTERS) c.p16 = characterPalette(c.pal, c.extras);
 
 const CHAR_BY_KEY = {};
 for (const c of CHARACTERS) CHAR_BY_KEY[c.key] = c;

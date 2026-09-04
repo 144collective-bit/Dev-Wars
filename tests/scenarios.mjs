@@ -13,7 +13,10 @@ export const SCENARIOS = [
   { name:"ai-vs-ai-hard",       chars:["brick","vex"],     seed:77,   frames:9000, driver:"ai", level:"hard" },
   { name:"ai-vs-ai-normal",     chars:["kestrel","brick"], seed:5150, frames:9000, driver:"ai", level:"normal" },
   { name:"pressure-corner",     chars:["kestrel","brick"], seed:11,   frames:1200, driver:"pressure" },
-  { name:"specials-drill",      chars:["vex","kestrel"],   seed:23,   frames:1500, driver:"specials" }
+  { name:"specials-drill",      chars:["vex","kestrel"],   seed:23,   frames:1500, driver:"specials" },
+  { name:"random-sommi-kestrel", chars:["sommi","kestrel"], seed:606,  frames:1800, driver:"random" },
+  { name:"sommi-corner",         chars:["sommi","brick"],   seed:88,   frames:1200, driver:"pressure" },
+  { name:"ai-sommi-vs-vex",      chars:["sommi","vex"],     seed:414,  frames:9000, driver:"ai", level:"hard" }
 ];
 
 /* Runs inside the page: builds a driver function for a scenario. */

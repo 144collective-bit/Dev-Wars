@@ -90,7 +90,7 @@
   }
   .hide{display:none!important}
   /* character select grid */
-  .csgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:6px 0 4px}
+  .csgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(84px,1fr));gap:9px;margin:6px 0 4px}
   .cscard{
     background:#15152a;border:2px solid var(--line);padding:9px 8px;cursor:pointer;
     text-align:center;transition:border-color .08s,background .08s;
@@ -225,7 +225,7 @@ const ROOM_PREFIX  = "ironcircuit-v1-";  /* namespaces room codes on the broker 
    apart. Bump this on EVERY release: a mismatched pair is refused up front
    with a "refresh the page" message, which is a far cheaper failure than a
    match that silently desyncs halfway through. */
-const GAME_VERSION = "1.5.0";
+const GAME_VERSION = "1.6.0";
 const NET_DELAY    = 3;                  /* frames of input delay in online play */
 
 /* ---- Screen / world constants -------------------------------------------- */
@@ -458,54 +458,48 @@ function ditherGradient(ctx, x, y, w, h, top, bottom, steps){
   }
 }
 
-/* --- a character's 16 colours ----------------------------------------------
-   The VDP gave a sprite one 16-entry palette, and one of those entries was
-   transparent. Fifteen colours for a whole fighter is the constraint that
-   forces the look: you cannot afford a five-tone ramp on every material, so
-   the outfit gets the most, skin next, and small parts share.
+/* --- a character's palette --------------------------------------------------
+   Every colour is still snapped to the console's 512. That is what holds the
+   art together across characters and stages, and it costs nothing.
 
-   Budgeting it explicitly — rather than letting colours accumulate — is what
-   keeps a roster looking like one game. `paletteSize` is asserted in the
-   tests. */
+   The hard sixteen-per-sprite limit is not kept. It capped the ceiling rather
+   than creating the look: sixteen colours cannot carry a hoodie, jeans, a
+   beard, a hat, slippers and a spoon, and the art this is aiming at is modern
+   pixel work rather than something a 1992 console had to fit in VRAM.
+
+   A budget still exists, generously, so that colours are spent deliberately
+   instead of accumulating. A fighter drifting past it means some material
+   wants sharing, not that the limit wants raising. Asserted in the tests. */
+const PALETTE_BUDGET = 24;
 const OUTLINE = "#14141f";
 
-function characterPalette(pal, opts){
-  opts = opts || {};
+/* Core materials every fighter has, plus any extras it declares. An extra
+   gets as many tones as it earns: three for something that carries form,
+   two for a flat accent. */
+function characterPalette(pal, extras){
   const skin = ramp(pal.skin), suit = ramp(pal.suit),
         hair = ramp(pal.hair), trim = ramp(pal.trim);
-  /* A character with an extra material — a hat, a weapon, a second garment —
-     has to buy the slot from somewhere. Dropping trim to a single tone pays
-     for it: a small part reads fine flat, where the outfit carrying the form
-     does not. */
-  const extra = {};
-  if (opts.accent) extra.accent = md(opts.accent);
-  if (opts.trimTones === 1) return Object.assign({
-    /* 1  outline, doubling as the eye — near-black twice over is a colour
-       a sprite this size cannot afford to spend */
-    line:    md(OUTLINE),
-    /* 4  skin */
-    skinDk:  skin.sh,  skinMid: skin.mid, skinLit: skin.lit, skinHi:  skin.hi,
-    /* 5  the outfit, which carries most of the form */
-    suitDk:  suit.dk,  suitSh:  suit.sh,  suitMid: suit.mid,
-    suitLit: suit.lit, suitHi:  suit.hi,
-    /* 3  hair */
-    hairDk:  hair.dk,  hairMid: hair.mid, hairLit: hair.lit,
-    /* 1  boots, gloves, belt — flat */
-    trimMid: trim.mid, trimLit: trim.mid,
-    /* 1  the cool rim that lifts the silhouette off the background */
-    rim:     suit.rim
-  }, extra);
-  return Object.assign({
+  const out = {
+    /* outline, doubling as the eye */
     line:    md(OUTLINE),
     skinDk:  skin.sh,  skinMid: skin.mid, skinLit: skin.lit, skinHi:  skin.hi,
+    /* the outfit carries most of the form, so it gets the longest ramp */
     suitDk:  suit.dk,  suitSh:  suit.sh,  suitMid: suit.mid,
     suitLit: suit.lit, suitHi:  suit.hi,
     hairDk:  hair.dk,  hairMid: hair.mid, hairLit: hair.lit,
-    /* 2  boots, gloves, belt */
+    /* boots, gloves, belt */
     trimMid: trim.mid, trimLit: trim.lit,
-    /* 1  the cool rim that lifts the silhouette off the background */
+    /* the cool rim that lifts the silhouette off the background */
     rim:     suit.rim
-  }, extra);
+  };
+  for (const name in (extras || {})){
+    const spec = extras[name], r = ramp(spec.hex), n = spec.tones || 2;
+    out[name + "Mid"] = r.mid;
+    if (n >= 2) out[name + "Lit"] = r.lit;
+    if (n >= 3) out[name + "Dk"]  = r.sh;
+    if (n >= 4) out[name + "Hi"]  = r.hi;
+  }
+  return out;
 }
 const paletteSize = p => new Set(Object.values(p)).size;
 
@@ -990,6 +984,19 @@ const POSE = {
              sB:[-6,-51], eB:[-13,-50], hB:[-17,-45], kF:[10,-30], fF:[14,-46], kB:[-4,-24], fB:[-4,-12] }),
   superHold: P({ pv:[-4,-32], nk:[-5,-52], hd:[-3,-61], sF:[-1,-49], eF:[-9,-44], hF:[-16,-39],
              sB:[-9,-49], eB:[-17,-43], hB:[-23,-37], kF:[4,-18], fF:[6,-1], kB:[-9,-18], fB:[-16,-1] }),
+/* --- Sommi only. Rounded shoulders, head carried forward, hands hanging by
+   the pockets. He is not on guard, and the stance says so before he moves. */
+  sommiIdle1: P({ pv:[-1,-33], nk:[-1,-52], hd:[ 3,-60],
+             sF:[3,-49], eF:[ 8,-42], hF:[ 9,-33],
+             sB:[-5,-49], eB:[-10,-42], hB:[-10,-33] }),
+  sommiIdle2: P({ pv:[-1,-32], nk:[-1,-51], hd:[ 3,-59],
+             sF:[3,-48], eF:[ 8,-41], hF:[ 9,-32],
+             sB:[-5,-48], eB:[-10,-41], hB:[-10,-32],
+             kF:[7,-17], kB:[-6,-17] }),
+  sommiIdle3: P({ pv:[-1,-34], nk:[-1,-53], hd:[ 4,-61],
+             sF:[3,-50], eF:[ 9,-43], hF:[10,-34],
+             sB:[-5,-50], eB:[-11,-43], hB:[-11,-34] }),
+
   win: P({ pv:[0,-35], nk:[0,-55], hd:[2,-64], sF:[4,-52], eF:[10,-62], hF:[13,-73],
              sB:[-4,-52], eB:[-11,-46], hB:[-12,-38], kF:[7,-18], fF:[11,-1], kB:[-7,-18], fB:[-13,-1] })
 };
@@ -1093,6 +1100,9 @@ const HURT = {
   lance      : [[-6,-72,18,18,0], [-10,-54,22,20,2], [-11,-34,24,34,1]],
   fang       : [[-11,-72,18,18,0], [-13,-54,24,18,2], [-12,-36,24,36,1]],
   superHold  : [[-12,-70,18,18,0], [-16,-52,23,20,2], [-16,-32,24,32,1]],
+  sommiIdle1 : [[-6,-69,18,18,0], [-12,-52,22,19,2], [-13,-33,24,33,1]],
+  sommiIdle2 : [[-6,-68,18,18,0], [-12,-51,22,19,2], [-13,-32,24,32,1]],
+  sommiIdle3 : [[-5,-70,18,18,0], [-12,-53,22,19,2], [-13,-34,24,34,1]],
   win        : [[-7,-73,18,18,0], [-11,-55,22,20,2], [-12,-35,24,35,1]]
 };
 /* A pose with no entry should be impossible — the bake covers every pose in
@@ -1317,10 +1327,52 @@ const CHARACTERS = [
       maxHits:6, rehit:4, invuln:8, knockdown:true, moveX:480, sfx:"super",
       poses:[POSE.superHold,POSE.spin1,POSE.spin2], hit:{x:4,y:-58,w:34,h:40} }) }
 }
+,
+{
+  key:"sommi", name:"Sommi", role:"Zoner",
+  blurb:"Longest reach in the game, on the end of a spoon. Walks backwards faster than he walks forwards, so he wins by making you come to him — and punishes you for arriving.",
+  hp:940, walkF:246, walkB:300, jumpV:1360, jumpX:235, scale:1.08, bulk:-1,
+  /* The spoon. Applies to punches only, and defaults to 1 for everyone else. */
+  reach:1.22,
+  stageKey:"neon",
+  pal:{ skin:"#e0b088", skinS:"#a87a52", skinB:"#7e5636", suit:"#8a8072", suitS:"#5e564c",
+        trim:"#6e6558", hair:"#8a5a30", belt:"#4a4238", glow:"#ffd23d", eye:"#20202c" },
+  /* Materials the other three do not have. The hat is his one loud colour and
+     has to carry him, since a grey hoodie disappears against concrete. */
+  extras:{ hat:{ hex:"#ffd23d", tones:3 },
+           pants:{ hex:"#3f5f86", tones:3 },
+           paw:{ hex:"#9a6438", tones:3 },
+           spoon:{ hex:"#b4b8c0", tones:2 } },
+  gear:{ hat:true, ears:true, beard:true, hood:true, bigFeet:true, weapon:"spoon" },
+  poses:{ idle1:POSE.sommiIdle1, idle2:POSE.sommiIdle2, idle3:POSE.sommiIdle3 },
+  specials:[
+    { key:"flick", check:(mb,b)=> (b & PUNCHES) && mb.qcb(),
+      make:(b)=> sp({ id:"flick_"+b, name:"Spoon Flick", startup:10, active:2, recovery:26,
+        dmg:0, sfx:"fire", poses:[POSE.jabStart,POSE.lance,POSE.lance], hit:null,
+        proj:{ kind:"bolt", vx: b===IN_LP?520:b===IN_MP?620:720, dmg:8, chip:3,
+               hitstun:14, blockstun:11, w:14, h:12, oy:-44, ox:22, pushHit:420 } }) },
+    { key:"slipper", check:(mb,b)=> (b & KICKS) && mb.dp(),
+      make:(b)=> sp({ id:"slipper_"+b, name:"Slipper Rise", startup:4, active:12, recovery:26,
+        dmg: b===IN_LK?14:b===IN_MK?16:18, hitstun:20, blockstun:13, chip:3,
+        knockdown:true, launch:880, invuln: b===IN_LK?5:7, moveX:200, moveY:1330,
+        air:true, sfx:"kick", poses:[POSE.riseWind,POSE.fang,POSE.fang],
+        hit:{x:0,y:-80,w:26,h:44} }) },
+    { key:"slide", check:(mb,b)=> (b & KICKS) && mb.hcf(),
+      make:(b)=> sp({ id:"slide_"+b, name:"Sock Slide", level:"low", startup:9, active:10,
+        recovery:26, dmg:13, hitstun:17, blockstun:12, chip:3, knockdown:true,
+        moveX: b===IN_LK?420:b===IN_MK?520:620, pushHit:560, sfx:"sweep",
+        poses:[POSE.sweepWind,POSE.sweep,POSE.sweepWind], hit:{x:12,y:-12,w:32,h:12} }) }
+  ],
+  super:{ key:"service", name:"Full Service", check:(mb,b)=> (b & PUNCHES) && mb.doubleQcf(),
+    make:()=> sp({ id:"super_service", name:"Full Service", type:"super",
+      startup:11, active:24, recovery:32, dmg:8, hitstun:13, blockstun:10, chip:2,
+      maxHits:6, rehit:5, invuln:9, knockdown:true, moveX:330, sfx:"super",
+      poses:[POSE.superHold,POSE.straight,POSE.jab], hit:{x:14,y:-58,w:38,h:26} }) }
+}
 ];
 
-/* Each fighter's sixteen colours, derived once from its base hues. */
-for (const c of CHARACTERS) c.p16 = characterPalette(c.pal);
+/* Each fighter's palette, derived once from its base hues. */
+for (const c of CHARACTERS) c.p16 = characterPalette(c.pal, c.extras);
 
 const CHAR_BY_KEY = {};
 for (const c of CHARACTERS) CHAR_BY_KEY[c.key] = c;
@@ -1502,10 +1554,29 @@ function buildSprite(ch, pose, facing, tint){
     : { rim, sh, mid, lit, hi };
   const suitF = set(P.rim, P.suitSh, P.suitMid, P.suitLit, P.suitHi);
   const suitB = set(null,  P.suitDk, P.suitSh,  P.suitMid, P.suitLit);
+  /* The rig drew the whole body from one material, which is fine for a gi and
+     wrong for anyone wearing a top and trousers. A character that declares a
+     `pants` material gets it on the legs. */
+  const pantsF = P.pantsMid
+    ? set(P.rim, P.pantsDk || P.pantsMid, P.pantsMid, P.pantsLit || P.pantsMid, P.pantsLit || P.pantsMid)
+    : suitF;
+  const pantsB = P.pantsMid
+    ? set(null, P.pantsDk || P.pantsMid, P.pantsDk || P.pantsMid, P.pantsMid, P.pantsLit || P.pantsMid)
+    : suitB;
   const skinF = set(P.rim, P.skinDk, P.skinMid, P.skinLit, P.skinHi);
   const skinB = set(null,  P.skinDk, P.skinDk,  P.skinMid, P.skinLit);
   const col = x => flash ? W_ : x;
   const OL = flash ? W_ : P.line;
+
+  /* Kit a character carries that the shared rig knows nothing about. Because
+     the rig is joint-based, all of it follows the pose for free — a weapon
+     drawn along the forearm vector is correct in all 54 frames without any
+     of them being redrawn. That is cheap here and expensive on a hand-drawn
+     sheet, which is worth remembering when deciding what a fighter holds. */
+  const G = ch.gear || {};
+  const footW = G.bigFeet ? 13 : 9, footH = G.bigFeet ? 6 : 4;
+  const footMid = G.bigFeet ? P.pawMid : P.trimMid;
+  const footLit = G.bigFeet ? P.pawLit : P.trimLit;
 
   /* Pass 1: silhouette outline, one pixel fatter than every part. */
   limb(c, J.sB[0],J.sB[1], J.eB[0],J.eB[1], wUA+2, OL);
@@ -1518,17 +1589,22 @@ function buildSprite(ch, pose, facing, tint){
   limb(c, J.sF[0],J.sF[1], J.eF[0],J.eF[1], wUA+2, OL);
   limb(c, J.eF[0],J.eF[1], J.hF[0],J.hF[1], wFA+2, OL);
   blob(c, J.hd[0], J.hd[1], headW+2, headH+2, OL);
-  blob(c, J.fF[0]+facing*2, J.fF[1], 11, 6, OL);
-  blob(c, J.fB[0]+facing*2, J.fB[1], 11, 6, OL);
+  blob(c, J.fF[0]+facing*2, J.fF[1], footW+2, footH+2, OL);
+  blob(c, J.fB[0]+facing*2, J.fB[1], footW+2, footH+2, OL);
+  if (G.hood) blob(c, J.nk[0] - facing*5, J.nk[1] + 2, 15, 12, OL);
 
   /* Pass 2: the parts, back to front. The far arm and leg use tones one step
      down the ramp, which is how a sprite this small says "behind". */
   limbShaded(c, J.sB[0],J.sB[1], J.eB[0],J.eB[1], wUA, suitB, lx, ly);
   limbShaded(c, J.eB[0],J.eB[1], J.hB[0],J.hB[1], wFA-1, skinB, lx, ly);
   blob(c, J.hB[0], J.hB[1], wFA+1, wFA+1, col(P.skinDk));
-  limbShaded(c, hipB[0],hipB[1], J.kB[0],J.kB[1], wTH, suitB, lx, ly);
-  limbShaded(c, J.kB[0],J.kB[1], J.fB[0],J.fB[1], wSH, suitB, lx, ly);
-  blob(c, J.fB[0]+facing*2, J.fB[1], 9, 4, col(P.trimMid));
+  limbShaded(c, hipB[0],hipB[1], J.kB[0],J.kB[1], wTH, pantsB, lx, ly);
+  limbShaded(c, J.kB[0],J.kB[1], J.fB[0],J.fB[1], wSH, pantsB, lx, ly);
+  blob(c, J.fB[0]+facing*2, J.fB[1], footW-2, footH-1, col(G.bigFeet ? P.pawDk : P.trimMid));
+  if (G.hood){
+    blob(c, J.nk[0] - facing*5, J.nk[1] + 2, 13, 10, col(P.suitSh));
+    blob(c, J.nk[0] - facing*6, J.nk[1] + 1, 9, 7, col(P.suitDk));
+  }
 
   /* torso */
   limbShaded(c, J.pv[0],J.pv[1], J.nk[0],J.nk[1], wTO, suitF, lx, ly);
@@ -1553,30 +1629,95 @@ function buildSprite(ch, pose, facing, tint){
     c.fillStyle = P.skinHi;
     c.fillRect(J.hd[0] + facing * ((headW>>1) - 1), hy + 7, 1, 2);
   }
-  /* hair: cap across the crown, wedge down the back of the skull */
-  roundRect(c, hx, hy, headW, 5, col(P.hairMid));
-  if (!flash){
-    c.fillStyle = P.hairLit;
-    c.fillRect(facing > 0 ? hx + 4 : hx + 2, hy + 1, headW - 6, 1);
+  /* beard first, so the hat and hair sit over it */
+  if (G.beard && !flash){
+    c.fillStyle = P.hairMid;
+    c.fillRect(facing > 0 ? hx + 1 : hx + 1, hy + 9, headW - 2, headH - 9);
+    c.fillRect(facing > 0 ? hx + headW - 2 : hx, hy + 8, 2, 4);
     c.fillStyle = P.hairDk;
-    c.fillRect(facing > 0 ? hx : hx + headW - 2, hy + 1, 2, 4);
+    c.fillRect(hx + 1, hy + headH - 2, headW - 2, 2);
+    c.fillStyle = P.hairLit;
+    c.fillRect(facing > 0 ? hx + headW - 4 : hx + 2, hy + 10, 2, 3);
   }
-  c.fillStyle = col(P.hairMid);
-  c.fillRect(facing > 0 ? hx : hx + headW - 3, hy + 4, 3, 5);
+  if (G.hat){
+    /* A novelty animal hat: bright, eared, and deliberately its own animal —
+       longer swept-back ears with brown tips, a pale snout patch and a side
+       stripe rather than round cheeks. */
+    const brim = facing > 0 ? hx + headW - 2 : hx - 3;
+    c.fillStyle = OL; c.fillRect(brim - (facing > 0 ? 0 : 2), hy + 3, 5, 3);
+    c.fillStyle = col(P.hatDk); c.fillRect(brim - (facing > 0 ? 0 : 1), hy + 3, 4, 2);
+    c.fillStyle = OL; c.fillRect(hx - 1, hy - 4, headW + 2, 10);
+    roundRect(c, hx, hy - 3, headW, 8, col(P.hatMid));
+    if (!flash){
+      c.fillStyle = P.hatLit; c.fillRect(hx + 2, hy - 3, headW - 4, 2);
+      c.fillStyle = P.hatDk;  c.fillRect(hx + 1, hy + 3, headW - 2, 2);
+      /* side stripe and pale snout: the two marks that make him his own
+         animal rather than a recognisable one */
+      c.fillStyle = P.pawDk;  c.fillRect(facing > 0 ? hx + 2 : hx + headW - 5, hy - 1, 3, 2);
+      c.fillStyle = P.skinHi; c.fillRect(facing > 0 ? hx + headW - 4 : hx + 1, hy - 1, 3, 3);
+    }
+    /* Ears: wide at the base, six steps tall, swept back off the facing.
+       Longer than this and they stop reading as ears and start reading as
+       antennae. */
+    const ear = (bx) => {
+      const draw = (pass) => {
+        for (let i = 0; i < 6; i++){
+          const w = Math.max(2, 6 - i);
+          const x = Math.round(bx - facing * i * 0.9) - (w >> 1);
+          if (pass === 0){ c.fillStyle = OL; c.fillRect(x - 1, hy - 5 - i*2, w + 2, 3); }
+          else {
+            c.fillStyle = col(i >= 4 ? P.pawDk : i < 2 ? P.hatLit : P.hatMid);
+            c.fillRect(x, hy - 5 - i*2, w, 2);
+          }
+        }
+      };
+      draw(0); draw(1);
+    };
+    ear(hx + 3); ear(hx + headW - 4);
+  } else {
+    /* hair: cap across the crown, wedge down the back of the skull */
+    roundRect(c, hx, hy, headW, 5, col(P.hairMid));
+    if (!flash){
+      c.fillStyle = P.hairLit;
+      c.fillRect(facing > 0 ? hx + 4 : hx + 2, hy + 1, headW - 6, 1);
+      c.fillStyle = P.hairDk;
+      c.fillRect(facing > 0 ? hx : hx + headW - 2, hy + 1, 2, 4);
+    }
+    c.fillStyle = col(P.hairMid);
+    c.fillRect(facing > 0 ? hx : hx + headW - 3, hy + 4, 3, 5);
+  }
   if (!flash){
     c.fillStyle = P.line;
     c.fillRect(J.hd[0] + facing * 2, hy + 7, 2, 3);              /* eye */
   }
 
   /* front leg and front arm carry the key light */
-  limbShaded(c, hipF[0],hipF[1], J.kF[0],J.kF[1], wTH, suitF, lx, ly);
-  limbShaded(c, J.kF[0],J.kF[1], J.fF[0],J.fF[1], wSH, suitF, lx, ly);
-  blob(c, J.fF[0]+facing*2, J.fF[1], 9, 4, col(P.trimMid));
-  blob(c, J.fF[0]+facing*2, J.fF[1]-1, 7, 1, col(P.trimLit));
+  limbShaded(c, hipF[0],hipF[1], J.kF[0],J.kF[1], wTH, pantsF, lx, ly);
+  limbShaded(c, J.kF[0],J.kF[1], J.fF[0],J.fF[1], wSH, pantsF, lx, ly);
+  blob(c, J.fF[0]+facing*2, J.fF[1], footW, footH, col(footMid));
+  blob(c, J.fF[0]+facing*2, J.fF[1]-1, footW-2, 1, col(footLit));
+  if (G.bigFeet && !flash){
+    c.fillStyle = P.pawDk;
+    for (let t = 0; t < 3; t++)
+      c.fillRect(J.fF[0] + facing*(3 + t*3) - 1, J.fF[1] - 1, 2, 2);
+  }
   limbShaded(c, J.sF[0],J.sF[1], J.eF[0],J.eF[1], wUA, suitF, lx, ly);
   limbShaded(c, J.eF[0],J.eF[1], J.hF[0],J.hF[1], wFA, skinF, lx, ly);
   blob(c, J.hF[0], J.hF[1], wFA+3, wFA+3, col(P.skinMid));
   blob(c, J.hF[0] + lx, J.hF[1] + ly, wFA, wFA, col(P.skinLit));
+
+  /* The weapon rides the forearm vector, so it is correct in every pose. */
+  if (G.weapon === "spoon"){
+    const dx = J.hF[0] - J.eF[0], dy = J.hF[1] - J.eF[1];
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len, uy = dy / len;
+    const tx = J.hF[0] + ux * 12, ty = J.hF[1] + uy * 12;
+    limb(c, J.hF[0], J.hF[1], tx, ty, 4, OL);
+    blob(c, tx, ty, 8, 7, OL);
+    limb(c, J.hF[0] + ux*2, J.hF[1] + uy*2, tx - ux*3, ty - uy*3, 2, col(P.spoonMid));
+    blob(c, tx, ty, 6, 5, col(P.spoonMid));
+    blob(c, tx - ux, ty - uy - 1, 4, 3, col(P.spoonLit));
+  }
   return cv;
 }
 

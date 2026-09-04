@@ -367,7 +367,7 @@ const colour = await page.evaluate(() => {
   for (const ch of CHARACTERS){
     const allowed = new Set(Object.values(ch.p16));
     out.sizes.push(allowed.size);
-    if (allowed.size > 16) out.overBudget.push(ch.key + ":" + allowed.size);
+    if (allowed.size > PALETTE_BUDGET) out.overBudget.push(ch.key + ":" + allowed.size);
     for (const key of ["skin","suit","hair","trim","belt"])
       if (!rampIsDistinct(ramp(ch.pal[key]))) out.rampCollisions.push(ch.key + "." + key);
     /* Every pixel of every pose must come from that character's sixteen. */
@@ -388,7 +388,7 @@ const colour = await page.evaluate(() => {
 });
 eq("every sprite pixel is in the character's palette", colour.offPalette, 0);
 eq("every colour exists on the hardware",              colour.offHardware, 0);
-ok("no character exceeds sixteen colours",             colour.overBudget.length === 0);
+ok("no character exceeds the palette budget",           colour.overBudget.length === 0);
 ok("every tone ramp survives quantisation",            colour.rampCollisions.length === 0);
 
 /* ------------------------------------------------------------ input path -- */

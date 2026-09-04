@@ -181,53 +181,47 @@ function ditherGradient(ctx, x, y, w, h, top, bottom, steps){
   }
 }
 
-/* --- a character's 16 colours ----------------------------------------------
-   The VDP gave a sprite one 16-entry palette, and one of those entries was
-   transparent. Fifteen colours for a whole fighter is the constraint that
-   forces the look: you cannot afford a five-tone ramp on every material, so
-   the outfit gets the most, skin next, and small parts share.
+/* --- a character's palette --------------------------------------------------
+   Every colour is still snapped to the console's 512. That is what holds the
+   art together across characters and stages, and it costs nothing.
 
-   Budgeting it explicitly — rather than letting colours accumulate — is what
-   keeps a roster looking like one game. `paletteSize` is asserted in the
-   tests. */
+   The hard sixteen-per-sprite limit is not kept. It capped the ceiling rather
+   than creating the look: sixteen colours cannot carry a hoodie, jeans, a
+   beard, a hat, slippers and a spoon, and the art this is aiming at is modern
+   pixel work rather than something a 1992 console had to fit in VRAM.
+
+   A budget still exists, generously, so that colours are spent deliberately
+   instead of accumulating. A fighter drifting past it means some material
+   wants sharing, not that the limit wants raising. Asserted in the tests. */
+const PALETTE_BUDGET = 24;
 const OUTLINE = "#14141f";
 
-function characterPalette(pal, opts){
-  opts = opts || {};
+/* Core materials every fighter has, plus any extras it declares. An extra
+   gets as many tones as it earns: three for something that carries form,
+   two for a flat accent. */
+function characterPalette(pal, extras){
   const skin = ramp(pal.skin), suit = ramp(pal.suit),
         hair = ramp(pal.hair), trim = ramp(pal.trim);
-  /* A character with an extra material — a hat, a weapon, a second garment —
-     has to buy the slot from somewhere. Dropping trim to a single tone pays
-     for it: a small part reads fine flat, where the outfit carrying the form
-     does not. */
-  const extra = {};
-  if (opts.accent) extra.accent = md(opts.accent);
-  if (opts.trimTones === 1) return Object.assign({
-    /* 1  outline, doubling as the eye — near-black twice over is a colour
-       a sprite this size cannot afford to spend */
-    line:    md(OUTLINE),
-    /* 4  skin */
-    skinDk:  skin.sh,  skinMid: skin.mid, skinLit: skin.lit, skinHi:  skin.hi,
-    /* 5  the outfit, which carries most of the form */
-    suitDk:  suit.dk,  suitSh:  suit.sh,  suitMid: suit.mid,
-    suitLit: suit.lit, suitHi:  suit.hi,
-    /* 3  hair */
-    hairDk:  hair.dk,  hairMid: hair.mid, hairLit: hair.lit,
-    /* 1  boots, gloves, belt — flat */
-    trimMid: trim.mid, trimLit: trim.mid,
-    /* 1  the cool rim that lifts the silhouette off the background */
-    rim:     suit.rim
-  }, extra);
-  return Object.assign({
+  const out = {
+    /* outline, doubling as the eye */
     line:    md(OUTLINE),
     skinDk:  skin.sh,  skinMid: skin.mid, skinLit: skin.lit, skinHi:  skin.hi,
+    /* the outfit carries most of the form, so it gets the longest ramp */
     suitDk:  suit.dk,  suitSh:  suit.sh,  suitMid: suit.mid,
     suitLit: suit.lit, suitHi:  suit.hi,
     hairDk:  hair.dk,  hairMid: hair.mid, hairLit: hair.lit,
-    /* 2  boots, gloves, belt */
+    /* boots, gloves, belt */
     trimMid: trim.mid, trimLit: trim.lit,
-    /* 1  the cool rim that lifts the silhouette off the background */
+    /* the cool rim that lifts the silhouette off the background */
     rim:     suit.rim
-  }, extra);
+  };
+  for (const name in (extras || {})){
+    const spec = extras[name], r = ramp(spec.hex), n = spec.tones || 2;
+    out[name + "Mid"] = r.mid;
+    if (n >= 2) out[name + "Lit"] = r.lit;
+    if (n >= 3) out[name + "Dk"]  = r.sh;
+    if (n >= 4) out[name + "Hi"]  = r.hi;
+  }
+  return out;
 }
 const paletteSize = p => new Set(Object.values(p)).size;
