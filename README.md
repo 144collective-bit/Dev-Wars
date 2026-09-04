@@ -88,7 +88,8 @@ noticeably floaty across an ocean.
 | Constant | What it does |
 |---|---|
 | `PEER_SERVER_CONFIG` | `null` uses the free public broker. Point it at your own PeerServer for reliability: `{host:"peer.example.com", port:443, secure:true, path:"/"}` |
-| `ICE_SERVERS` | STUN servers for NAT traversal. Add a TURN server here to cover the ~10% of networks STUN cannot punch through. |
+| `TURN_SERVERS` | Empty by default. A TURN relay covers the networks STUN cannot punch through — see below. |
+| `RECONNECT_WINDOW_MS` | How long a dropped match keeps trying to come back. |
 | `NET_DELAY` | Input delay in frames. Lower feels sharper, higher survives worse connections. |
 | `ROOM_PREFIX` | Namespaces your room codes on the shared broker. |
 | `GAME_VERSION` | Both players must be on the same build. See below. |
@@ -103,6 +104,18 @@ halfway through.
 
 The cost of forgetting to bump it is a silent desync; the cost of bumping it
 unnecessarily is one refresh. Bump it whenever you change the file.
+
+## Deployment
+
+`.github/workflows/ci.yml` runs the suite on every push and pull request, then
+publishes to GitHub Pages from `main` — but only after the tests pass, so a
+red build cannot reach players.
+
+**Pages needs enabling once, by hand.** The workflow tries to enable it, but
+creating a Pages site is not something the workflow token is allowed to do:
+it fails with `Resource not accessible by integration`. Go to
+**Settings → Pages → Build and deployment** and set **Source: GitHub Actions**.
+Every deploy after that is automatic.
 
 ## Development
 
@@ -173,6 +186,38 @@ being derived from the rig, so moving a joint changes only the drawing —
 verified by moving one and watching all eight scenarios still pass. Editing
 `src/hurtboxes.js` is the deliberate gameplay change, and all eight fail when
 you make one.
+
+### When a connection drops
+
+A drop mid-match is recoverable rather than fatal. Both sides keep every input
+of the match so far, so when a channel comes back they tell each other where
+they had got to, backfill the inputs the other is missing, and carry on from
+the later of the two positions. The few frames beyond that point were
+generated but never simulated by either side, so both discard them and
+re-prime the input delay exactly as a match start does.
+
+The game keeps trying for `RECONNECT_WINDOW_MS` (20 seconds by default) and
+shows a countdown while it does. Losing the broker is treated separately: the
+data channel is peer-to-peer and keeps working without it, so the page quietly
+reconnects to the broker in the background and the room code answers again
+afterwards.
+
+One failure is called out specially. If ICE reports `failed`, the two browsers
+could not find a path to each other at all — that is a NAT problem, not an
+opponent problem, and retrying will not fix it. The fix is a TURN relay, so
+the message says so instead of blaming the other player.
+
+### Adding a TURN server
+
+STUN is enough on most home networks. It is not enough on symmetric NATs —
+common on corporate and mobile networks — where the only way through is a
+relay both sides send their traffic to. Set `TURN_SERVERS` with the
+credentials your provider gives you.
+
+Long-lived TURN credentials sitting in a public page can be harvested and used
+to relay someone else's traffic at your expense. Prefer a provider that issues
+short-lived credentials, and fetch them at runtime rather than pasting them
+into the file.
 
 ## Tuning the game
 

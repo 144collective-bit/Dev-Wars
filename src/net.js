@@ -19,6 +19,7 @@ const Net = {
   simFrame:0, sendFrame:0, mySide:0,
   remoteChar:null, myChar:null, seed:0,
   stallFrames:0, desync:false, lastPing:0, ping:0,
+  iceFailed:false, resumeAt:-1, theirSim:-1, reconnectUntil:0, retryTimer:null,
   onStatus:null, onStart:null, onEnd:null, onRematch:null,
 
   makeCode(){
@@ -40,7 +41,12 @@ const Net = {
     }
     const opts = { debug:0, config:{ iceServers: ICE_SERVERS } };
     if (PEER_SERVER_CONFIG) Object.assign(opts, PEER_SERVER_CONFIG);
-    return id ? new Peer(id, opts) : new Peer(opts);
+    const p = id ? new Peer(id, opts) : new Peer(opts);
+    /* Losing the broker is not losing the match: the data channel is
+       peer-to-peer and keeps working. Reconnecting quietly means the room
+       code still answers afterwards. */
+    p.on("disconnected", () => { try { if (!p.destroyed) p.reconnect(); } catch(e){} });
+    return p;
   },
 
   host(charKey){
@@ -56,7 +62,9 @@ const Net = {
     p.on("open", () => this.status("Room open. Give your friend the code."));
     p.on("error", e => this.handlePeerError(e));
     p.on("connection", c => {
-      if (this.conn){ c.close(); return; }
+      /* Refuse a second player, but accept a replacement channel from the one
+         who dropped out. */
+      if (this.conn && this.conn.open && this.state !== "reconnecting"){ c.close(); return; }
       this.conn = c;
       this.wire(c);
     });
@@ -89,18 +97,93 @@ const Net = {
     else this.status("Connection problem" + (t ? " (" + t + ")" : "") + ".", "err");
   },
   wire(c){
+    const resuming = this.state === "reconnecting";
     c.on("open", () => {
-      this.state = "handshake";
-      this.status("Connected. Syncing…", "ok");
-      this.send({ t:"hello", char:this.myChar, ver:GAME_VERSION });
+      clearInterval(this.pingTimer);
+      if (resuming || this.state === "reconnecting"){
+        /* Same match, new channel: agree where to pick up rather than
+           starting over. */
+        this.status("Reconnected. Resyncing…", "ok");
+        this.send({ t:"resume", ver:GAME_VERSION, seed:this.seed, sim:this.simFrame });
+      } else {
+        this.state = "handshake";
+        this.status("Connected. Syncing…", "ok");
+        this.send({ t:"hello", char:this.myChar, ver:GAME_VERSION });
+      }
       this.pingTimer = setInterval(() => {
         this.lastPing = performance.now();
         this.send({ t:"ping" });
       }, 2000);
+      /* If ICE gives up, the cause is NAT traversal, not the opponent — worth
+         saying so, because the fix is a TURN server rather than retrying. */
+      const pc = c.peerConnection;
+      if (pc) pc.addEventListener("iceconnectionstatechange", () => {
+        if (pc.iceConnectionState === "failed") this.iceFailed = true;
+      });
     });
     c.on("data", d => this.onData(d));
-    c.on("close", () => this.dropped("Opponent disconnected."));
-    c.on("error", () => this.dropped("Connection lost."));
+    c.on("close", () => this.connectionLost("The connection dropped."));
+    c.on("error", () => this.connectionLost("The connection dropped."));
+  },
+
+  /* ---- losing and regaining the channel ---------------------------------- */
+
+  /* A drop mid-match is recoverable: both sides hold every input of the match
+     so far, so once a channel is back they can backfill each other and carry
+     on from where they stopped. Only give up once the window expires. */
+  connectionLost(why){
+    if (this.state === "dead" || this.state === "reconnecting") return;
+    if (this.state !== "playing"){ this.dropped(why); return; }
+    if (this.iceFailed){
+      this.dropped("Could not get a connection through — this network needs a TURN relay. " +
+                   "Try a different network, or set TURN_SERVERS in the page.");
+      return;
+    }
+    this.state = "reconnecting";
+    this.resumeAt = -1; this.theirSim = -1;
+    this.reconnectUntil = Date.now() + RECONNECT_WINDOW_MS;
+    this.status("Connection lost — reconnecting…");
+    clearInterval(this.pingTimer);
+    const tick = () => {
+      if (this.state !== "reconnecting") return;
+      if (Date.now() > this.reconnectUntil){
+        clearInterval(this.retryTimer);
+        this.dropped("Lost the connection and could not get it back.");
+        return;
+      }
+      /* The guest re-dials the room; the host simply waits, because its peer
+         id is the room code and the guest knows where to find it. */
+      if (!this.isHost && this.peer && !this.peer.destroyed){
+        try {
+          const c = this.peer.connect(ROOM_PREFIX + this.code, { reliable:true, serialization:"json" });
+          this.conn = c;
+          this.wire(c);
+        } catch(e){ /* broker still down; try again on the next tick */ }
+      }
+    };
+    clearInterval(this.retryTimer);
+    this.retryTimer = setInterval(tick, RECONNECT_RETRY_MS);
+    tick();
+  },
+
+  /* Both sides pick the later of the two positions and re-prime the input
+     delay there, exactly as a match start does. Frames beyond that point were
+     generated but never simulated by anyone, so dropping them is safe — and
+     both sides drop the same ones, which is what keeps them in step. */
+  finishResume(){
+    const at = this.resumeAt;
+    if (at < 0) return;
+    for (const f of Array.from(this.remoteInputs.keys())) if (f >= at) this.remoteInputs.delete(f);
+    for (const f of Array.from(this.localInputs.keys()))  if (f >= at) this.localInputs.delete(f);
+    for (let i = at; i < at + NET_DELAY; i++){ this.localInputs.set(i, 0); this.remoteInputs.set(i, 0); }
+    for (let f = 0; f < at; f++) if (!this.remoteInputs.has(f)) return;   /* still missing history */
+    this.simFrame = at;
+    this.sendFrame = at + NET_DELAY;
+    this.resumeAt = -1; this.theirSim = -1;
+    clearInterval(this.retryTimer);
+    this.state = "playing";
+    this.stallFrames = 0;
+    this.status("Reconnected.", "ok");
   },
   onData(d){
     if (!d || typeof d !== "object") return;
@@ -128,6 +211,30 @@ const Net = {
         if ((d.s >>> 0) !== this.seed) break;
         this.checkSum(d.f, d.h >>> 0);
         break;
+      case "resume": {
+        if (this.versionClash(d.ver)) break;
+        if ((d.seed >>> 0) !== this.seed) break;      /* a different match */
+        this.theirSim = d.sim | 0;
+        this.resumeAt = Math.max(this.simFrame, this.theirSim);
+        /* Give them every input they are missing, up to the resume point. */
+        const from = Math.max(0, d.sim | 0), upto = this.resumeAt;
+        const masks = [];
+        for (let f = from; f < upto; f++) masks.push(this.localInputs.get(f) | 0);
+        this.send({ t:"resync", seed:this.seed, from, masks });
+        if (this.state === "reconnecting" && !this.sentResume){
+          this.sentResume = true;
+          this.send({ t:"resume", ver:GAME_VERSION, seed:this.seed, sim:this.simFrame });
+        }
+        this.finishResume();
+        break;
+      }
+      case "resync": {
+        if ((d.seed >>> 0) !== this.seed) break;
+        const from = d.from | 0, masks = d.masks || [];
+        for (let i = 0; i < masks.length; i++) this.remoteInputs.set(from + i, masks[i] | 0);
+        this.finishResume();
+        break;
+      }
       case "ping": this.send({ t:"pong" }); break;
       case "pong": this.ping = Math.round(performance.now() - this.lastPing); break;
       case "rematch": if (this.onRematch) this.onRematch(d); break;
@@ -169,6 +276,8 @@ const Net = {
     for (let i = 0; i < NET_DELAY; i++){ this.localInputs.set(i, 0); this.remoteInputs.set(i, 0); }
     this.simFrame = 0; this.sendFrame = NET_DELAY;
     this.stallFrames = 0; this.desync = false;
+    this.iceFailed = false; this.resumeAt = -1; this.theirSim = -1; this.sentResume = false;
+    clearInterval(this.retryTimer);
     this.state = "playing";
     this.pendingChecks = new Map();
     if (this.onStart) this.onStart(charKeys, this.seed, this.mySide);
@@ -189,8 +298,8 @@ const Net = {
     this.stallFrames = 0;
     const mine = this.localInputs.get(f) | 0, theirs = this.remoteInputs.get(f) | 0;
     this.simFrame++;
-    /* prune */
-    if (f > 240){ this.localInputs.delete(f - 240); this.remoteInputs.delete(f - 240); }
+    /* The history is deliberately not pruned: a reconnect backfills the other
+       side from it, and a whole match is only a few thousand small integers. */
     /* periodic desync check */
     if (game && f % 60 === 0){
       const h = hashState(game);
@@ -212,15 +321,18 @@ const Net = {
     if (this.state === "dead") return;
     this.state = "dead";
     clearInterval(this.pingTimer);
+    clearInterval(this.retryTimer);
     if (this.onEnd) this.onEnd(msg);
   },
   reset(){
     clearInterval(this.pingTimer);
+    clearInterval(this.retryTimer);
     try { if (this.conn) this.conn.close(); } catch(e){}
     try { if (this.peer) this.peer.destroy(); } catch(e){}
     this.peer = null; this.conn = null; this.state = "idle";
     this.localInputs.clear(); this.remoteInputs.clear();
     this.remoteChar = null; this.desync = false; this.ping = 0;
+    this.iceFailed = false; this.resumeAt = -1; this.theirSim = -1; this.sentResume = false;
   },
   leave(){ this.send({ t:"bye" }); this.reset(); }
 };

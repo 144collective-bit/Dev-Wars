@@ -182,6 +182,60 @@ const net = await page.evaluate(() => {
   }
   out.desyncDetected = C.desync || D.desync;
 
+  /* A mid-match drop must resume, not restart. Both sides hold the whole
+     input history, so once a channel is back they backfill each other and
+     carry on in step. */
+  {
+    const P = mkNet(true, 0, 4242), Q = mkNet(false, 1, 4242);
+    let linked = true;
+    P.send = o => { if (linked) Q.onData(o); };
+    Q.send = o => { if (linked) P.onData(o); };
+    P.status = Q.status = () => {};
+    const gP = new Game(["kestrel","brick"], 4242), gQ = new Game(["kestrel","brick"], 4242);
+    const rr = makeRNG(31337);
+    const inp = () => { const x = rr() % 100; return (x<30?IN_RIGHT:x<50?IN_LEFT:x<60?IN_DOWN:0) | (x<70&&x>=60?IN_MP:0); };
+    const run = n => { for (let i = 0; i < n; i++){
+      const a = P.exchange(inp(), gP); if (a) gP.step(a);
+      const b = Q.exchange(inp(), gQ); if (b) gQ.step(b);
+    } };
+    run(300);
+    const beforeP = gP.frame, beforeQ = gQ.frame;
+
+    linked = false;                       /* the channel goes away */
+    P.connectionLost("test drop");
+    Q.connectionLost("test drop");
+    const droppedState = P.state === "reconnecting" && Q.state === "reconnecting";
+    run(60);                              /* neither side may advance */
+    const frozeP = gP.frame === beforeP, frozeQ = gQ.frame === beforeQ;
+
+    linked = true;                        /* a new channel opens */
+    P.send({ t:"resume", ver:GAME_VERSION, seed:P.seed, sim:P.simFrame });
+    Q.send({ t:"resume", ver:GAME_VERSION, seed:Q.seed, sim:Q.simFrame });
+    const resumed = P.state === "playing" && Q.state === "playing";
+    run(600);
+    out.resume = {
+      droppedState, frozeP, frozeQ, resumed,
+      advanced: gP.frame > beforeP + 400,
+      inSync: hashState(gP) === hashState(gQ),
+      sameFrame: gP.frame === gQ.frame,
+      noDesync: !P.desync && !Q.desync
+    };
+    clearInterval(P.retryTimer); clearInterval(Q.retryTimer);
+  }
+
+  /* A network that cannot be traversed is a different failure from a peer
+     that left, and says so. */
+  {
+    const R = mkNet(true, 0, 5);
+    R.send = () => {};
+    let msg = "";
+    R.onStatus = () => {};
+    R.onEnd = m => { msg = m; };
+    R.iceFailed = true;
+    R.connectionLost("dropped");
+    out.iceFailure = { dead: R.state === "dead", mentionsTurn: /TURN/.test(msg) };
+  }
+
   /* A packet from a previous match must not leak into this one. */
   const E = mkNet(true,0,111); E.remoteInputs.clear();
   E.onData({ t:"i", f:5, m:IN_HP, s:999 });
@@ -214,6 +268,10 @@ const net = await page.evaluate(() => {
 eq("lockstep peers never diverge",            net.lockstep.diverged, -1);
 ok("lockstep simulated the full run",         net.lockstep.stepped > 1400 && net.lockstep.sides);
 ok("a desync is detected",                    net.desyncDetected);
+ok("a drop freezes both sides",               net.resume.droppedState && net.resume.frozeP && net.resume.frozeQ);
+ok("reconnecting resumes the same match",     net.resume.resumed && net.resume.advanced);
+ok("both sides stay in sync after a resume",  net.resume.inSync && net.resume.sameFrame && net.resume.noDesync);
+ok("NAT failure is reported as such",         net.iceFailure.dead && net.iceFailure.mentionsTurn);
 ok("stale packets from a past match ignored", net.sessionFilter);
 ok("matching versions start a match",         net.handshake.matchingStarts);
 ok("mismatched versions never start",         net.handshake.mismatchRefused);

@@ -20,12 +20,34 @@
      { host:"peer.example.com", port:443, secure:true, path:"/" }            */
 const PEER_SERVER_CONFIG = null;  /* null = PeerJS public cloud broker */
 
-/* ICE servers for NAT traversal. STUN alone connects most home networks; a
-   TURN server (which you would have to run or rent) covers the rest.        */
-const ICE_SERVERS = [
+/* STUN lets two browsers discover their public addresses, which is enough on
+   most home networks. It is not enough on symmetric NATs — a lot of corporate
+   and mobile networks — where the only way through is a TURN relay that both
+   sides send their traffic to. TURN costs money to run or rent, so the slot is
+   empty by default and the game tells the player plainly when a connection
+   fails for that reason.
+
+   To add one, drop in the credentials your provider gives you:
+
+     const TURN_SERVERS = [{
+       urls: ["turn:turn.example.com:3478", "turns:turn.example.com:5349"],
+       username: "...", credential: "..."
+     }];
+
+   Long-lived credentials in a public page can be harvested and used to relay
+   someone else's traffic at your expense, so prefer a provider that issues
+   short-lived ones, and fetch them at runtime rather than pasting them here. */
+const TURN_SERVERS = [];
+
+const STUN_SERVERS = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:global.stun.twilio.com:3478" }
 ];
+const ICE_SERVERS = STUN_SERVERS.concat(TURN_SERVERS);
+
+/* How long to keep trying to re-establish a dropped match before giving up. */
+const RECONNECT_WINDOW_MS = 20000;
+const RECONNECT_RETRY_MS  = 2000;
 
 const ROOM_PREFIX  = "ironcircuit-v1-";  /* namespaces room codes on the broker */
 
@@ -33,7 +55,7 @@ const ROOM_PREFIX  = "ironcircuit-v1-";  /* namespaces room codes on the broker 
    apart. Bump this on EVERY release: a mismatched pair is refused up front
    with a "refresh the page" message, which is a far cheaper failure than a
    match that silently desyncs halfway through. */
-const GAME_VERSION = "1.2.0";
+const GAME_VERSION = "1.3.0";
 const NET_DELAY    = 3;                  /* frames of input delay in online play */
 
 /* ---- Screen / world constants -------------------------------------------- */

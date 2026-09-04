@@ -448,7 +448,12 @@ function draw(){
   }
   if ((scene === "match" || scene === "results") && game){
     render(game);
-    if (mode === "net" && netStalled > 30){
+    if (mode === "net" && Net.state === "reconnecting"){
+      const left = Math.max(0, Math.ceil((Net.reconnectUntil - Date.now()) / 1000));
+      sctx.fillStyle = "rgba(5,6,15,.80)"; sctx.fillRect(0, H/2 - 22, W, 44);
+      drawTextC(sctx, "RECONNECTING", W/2, H/2 - 12, "#ffcc33", 1, 1);
+      drawTextC(sctx, "GIVING UP IN " + left + "S", W/2, H/2 + 2, "#8b88a3", 1, 1);
+    } else if (mode === "net" && netStalled > 30){
       const msg = netStalled > 600 ? "OPPONENT NOT RESPONDING" : "WAITING FOR OPPONENT";
       sctx.fillStyle = "rgba(5,6,15,.72)"; sctx.fillRect(0, H/2 - 16, W, 32);
       drawTextC(sctx, msg, W/2, H/2 - 4, "#ffcc33", 1, 1);
