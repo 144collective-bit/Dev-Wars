@@ -1,0 +1,636 @@
+{
+ "cell": 128,
+ "cols": 8,
+ "rows": 8,
+ "originX": 64,
+ "originY": 112,
+ "sheetWidth": 1024,
+ "sheetHeight": 1024,
+ "layout": [
+  [
+   "idle1",
+   "idle2",
+   "idle3",
+   "crouch",
+   "blockHi",
+   "blockLo",
+   "land",
+   "win"
+  ],
+  [
+   "walk1",
+   "walk2",
+   "walk3",
+   "walk4",
+   "walk5",
+   "jumpUp",
+   "jumpBall",
+   "jumpFall"
+  ],
+  [
+   "hitHi",
+   "hitLo",
+   "hitAir",
+   "fall1",
+   "fall2",
+   "down",
+   "getup",
+   null
+  ],
+  [
+   "jabStart",
+   "jab",
+   "straight",
+   "fierceWind",
+   "fierce",
+   "crJab",
+   "crStrong",
+   "crFierce"
+  ],
+  [
+   "shortStart",
+   "shortKick",
+   "midKick",
+   "highKick",
+   "crShort",
+   "crMid",
+   "sweepWind",
+   "sweep"
+  ],
+  [
+   "airJab",
+   "airFierce",
+   "airShort",
+   "airHeavy",
+   null,
+   null,
+   null,
+   null
+  ],
+  [
+   "boltWind",
+   "boltFire",
+   "riseWind",
+   "rise",
+   "spin1",
+   "spin2",
+   "grabReach",
+   "grabHold"
+  ],
+  [
+   "lance",
+   "fang",
+   "superHold",
+   null,
+   null,
+   null,
+   null,
+   null
+  ]
+ ],
+ "rowLabels": [
+  "STANCE",
+  "LOCOMOTION",
+  "REACTIONS",
+  "PUNCHES",
+  "KICKS",
+  "AIR ATTACKS",
+  "SPECIALS",
+  "SPECIALS"
+ ],
+ "animations": {
+  "idle": {
+   "loop": true,
+   "frames": [
+    [
+     "idle1",
+     10
+    ],
+    [
+     "idle2",
+     8
+    ],
+    [
+     "idle3",
+     10
+    ],
+    [
+     "idle2",
+     8
+    ]
+   ]
+  },
+  "walkF": {
+   "loop": true,
+   "frames": [
+    [
+     "walk1",
+     6
+    ],
+    [
+     "walk2",
+     6
+    ],
+    [
+     "walk3",
+     6
+    ],
+    [
+     "walk4",
+     6
+    ],
+    [
+     "walk5",
+     6
+    ],
+    [
+     "walk4",
+     6
+    ]
+   ]
+  },
+  "walkB": {
+   "loop": true,
+   "frames": [
+    [
+     "walk4",
+     6
+    ],
+    [
+     "walk5",
+     6
+    ],
+    [
+     "walk3",
+     6
+    ],
+    [
+     "walk2",
+     6
+    ],
+    [
+     "walk1",
+     6
+    ],
+    [
+     "walk4",
+     6
+    ]
+   ]
+  },
+  "crouch": {
+   "loop": false,
+   "frames": [
+    [
+     "crouch",
+     1
+    ]
+   ]
+  },
+  "jumpRise": {
+   "loop": false,
+   "frames": [
+    [
+     "jumpUp",
+     6
+    ],
+    [
+     "jumpBall",
+     999
+    ]
+   ]
+  },
+  "jumpFall": {
+   "loop": false,
+   "frames": [
+    [
+     "jumpFall",
+     999
+    ]
+   ]
+  },
+  "land": {
+   "loop": false,
+   "frames": [
+    [
+     "land",
+     4
+    ]
+   ]
+  },
+  "blockHi": {
+   "loop": false,
+   "frames": [
+    [
+     "blockHi",
+     1
+    ]
+   ]
+  },
+  "blockLo": {
+   "loop": false,
+   "frames": [
+    [
+     "blockLo",
+     1
+    ]
+   ]
+  },
+  "hitHi": {
+   "loop": false,
+   "frames": [
+    [
+     "hitHi",
+     999
+    ]
+   ]
+  },
+  "hitLo": {
+   "loop": false,
+   "frames": [
+    [
+     "hitLo",
+     999
+    ]
+   ]
+  },
+  "hitAir": {
+   "loop": false,
+   "frames": [
+    [
+     "hitAir",
+     999
+    ]
+   ]
+  },
+  "fall": {
+   "loop": false,
+   "frames": [
+    [
+     "fall1",
+     6
+    ],
+    [
+     "fall2",
+     999
+    ]
+   ]
+  },
+  "down": {
+   "loop": false,
+   "frames": [
+    [
+     "down",
+     999
+    ]
+   ]
+  },
+  "getup": {
+   "loop": false,
+   "frames": [
+    [
+     "getup",
+     10
+    ],
+    [
+     "land",
+     4
+    ]
+   ]
+  },
+  "win": {
+   "loop": false,
+   "frames": [
+    [
+     "win",
+     999
+    ]
+   ]
+  },
+  "intro": {
+   "loop": false,
+   "frames": [
+    [
+     "idle3",
+     20
+    ],
+    [
+     "idle1",
+     20
+    ]
+   ]
+  }
+ },
+ "moves": {
+  "Jab": {
+   "startup": 3,
+   "active": 3,
+   "recovery": 6,
+   "frames": [
+    "jabStart",
+    "jab",
+    "jabStart"
+   ]
+  },
+  "Straight": {
+   "startup": 5,
+   "active": 4,
+   "recovery": 11,
+   "frames": [
+    "jabStart",
+    "straight",
+    "jab"
+   ]
+  },
+  "Fierce": {
+   "startup": 8,
+   "active": 5,
+   "recovery": 18,
+   "frames": [
+    "fierceWind",
+    "fierce",
+    "straight"
+   ]
+  },
+  "Short": {
+   "startup": 4,
+   "active": 3,
+   "recovery": 8,
+   "frames": [
+    "shortStart",
+    "shortKick",
+    "shortStart"
+   ]
+  },
+  "Forward": {
+   "startup": 6,
+   "active": 4,
+   "recovery": 13,
+   "frames": [
+    "shortStart",
+    "midKick",
+    "shortKick"
+   ]
+  },
+  "Roundhouse": {
+   "startup": 9,
+   "active": 5,
+   "recovery": 20,
+   "frames": [
+    "shortStart",
+    "highKick",
+    "midKick"
+   ]
+  },
+  "Crouch Jab": {
+   "startup": 3,
+   "active": 3,
+   "recovery": 6,
+   "frames": [
+    "crouch",
+    "crJab",
+    "crouch"
+   ]
+  },
+  "Crouch Strong": {
+   "startup": 5,
+   "active": 4,
+   "recovery": 11,
+   "frames": [
+    "crouch",
+    "crStrong",
+    "crouch"
+   ]
+  },
+  "Crouch Fierce": {
+   "startup": 6,
+   "active": 6,
+   "recovery": 17,
+   "frames": [
+    "crouch",
+    "crFierce",
+    "crouch"
+   ]
+  },
+  "Crouch Short": {
+   "startup": 4,
+   "active": 3,
+   "recovery": 7,
+   "frames": [
+    "crouch",
+    "crShort",
+    "crouch"
+   ]
+  },
+  "Crouch Forward": {
+   "startup": 6,
+   "active": 4,
+   "recovery": 13,
+   "frames": [
+    "crouch",
+    "crMid",
+    "crouch"
+   ]
+  },
+  "Sweep": {
+   "startup": 8,
+   "active": 5,
+   "recovery": 23,
+   "frames": [
+    "sweepWind",
+    "sweep",
+    "sweepWind"
+   ]
+  },
+  "Air Jab": {
+   "startup": 4,
+   "active": 9,
+   "recovery": 2,
+   "frames": [
+    "airJab",
+    "airJab",
+    "airJab"
+   ]
+  },
+  "Air Strong": {
+   "startup": 5,
+   "active": 9,
+   "recovery": 2,
+   "frames": [
+    "airJab",
+    "airFierce",
+    "airFierce"
+   ]
+  },
+  "Air Fierce": {
+   "startup": 6,
+   "active": 9,
+   "recovery": 2,
+   "frames": [
+    "airJab",
+    "airFierce",
+    "airFierce"
+   ]
+  },
+  "Air Short": {
+   "startup": 4,
+   "active": 11,
+   "recovery": 2,
+   "frames": [
+    "airShort",
+    "airShort",
+    "airShort"
+   ]
+  },
+  "Air Forward": {
+   "startup": 5,
+   "active": 11,
+   "recovery": 2,
+   "frames": [
+    "airShort",
+    "airHeavy",
+    "airHeavy"
+   ]
+  },
+  "Air Roundhouse": {
+   "startup": 6,
+   "active": 11,
+   "recovery": 2,
+   "frames": [
+    "airShort",
+    "airHeavy",
+    "airHeavy"
+   ]
+  },
+  "Throw": {
+   "startup": 2,
+   "active": 2,
+   "recovery": 18,
+   "frames": [
+    "grabReach",
+    "grabHold",
+    "grabReach"
+   ]
+  },
+  "Gale Bolt": {
+   "startup": 11,
+   "active": 2,
+   "recovery": 29,
+   "frames": [
+    "boltWind",
+    "boltFire",
+    "boltFire"
+   ]
+  },
+  "Talon Rise": {
+   "startup": 3,
+   "active": 12,
+   "recovery": 24,
+   "frames": [
+    "riseWind",
+    "rise",
+    "rise"
+   ]
+  },
+  "Cyclone Heel": {
+   "startup": 7,
+   "active": 16,
+   "recovery": 20,
+   "frames": [
+    "spin1",
+    "spin2",
+    "spin1"
+   ]
+  },
+  "Tempest Bolt": {
+   "startup": 14,
+   "active": 2,
+   "recovery": 38,
+   "frames": [
+    "superHold",
+    "boltFire",
+    "boltFire"
+   ]
+  },
+  "Slab Rush": {
+   "startup": 12,
+   "active": 14,
+   "recovery": 26,
+   "frames": [
+    "fierceWind",
+    "fierce",
+    "straight"
+   ]
+  },
+  "Iron Clasp": {
+   "startup": 5,
+   "active": 3,
+   "recovery": 26,
+   "frames": [
+    "grabReach",
+    "grabHold",
+    "grabReach"
+   ]
+  },
+  "Anvil Drop": {
+   "startup": 14,
+   "active": 8,
+   "recovery": 22,
+   "frames": [
+    "jumpUp",
+    "sweep",
+    "sweepWind"
+   ]
+  },
+  "Wrecking Line": {
+   "startup": 10,
+   "active": 26,
+   "recovery": 34,
+   "frames": [
+    "superHold",
+    "fierce",
+    "straight"
+   ]
+  },
+  "Static Lance": {
+   "startup": 8,
+   "active": 2,
+   "recovery": 26,
+   "frames": [
+    "jabStart",
+    "lance",
+    "lance"
+   ]
+  },
+  "Sky Fang": {
+   "startup": 4,
+   "active": 14,
+   "recovery": 22,
+   "frames": [
+    "riseWind",
+    "fang",
+    "fang"
+   ]
+  },
+  "Razor Spin": {
+   "startup": 6,
+   "active": 14,
+   "recovery": 19,
+   "frames": [
+    "spin2",
+    "spin1",
+    "spin2"
+   ]
+  },
+  "Circuit Break": {
+   "startup": 8,
+   "active": 24,
+   "recovery": 30,
+   "frames": [
+    "superHold",
+    "spin1",
+    "spin2"
+   ]
+  }
+ }
+}
