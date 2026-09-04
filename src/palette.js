@@ -21,7 +21,42 @@ function mdLevel(v){
   return best;
 }
 const hex2 = v => v.toString(16).padStart(2, "0");
-function mdRGB(r, g, b){ return "#" + hex2(mdLevel(r)) + hex2(mdLevel(g)) + hex2(mdLevel(b)); }
+
+/* Snapping each channel on its own is what the hardware does to a colour it is
+   given, but it is not what an artist choosing a colour FOR the hardware does.
+   The gap from 0 to 52 is the widest step in the ramp, so a near-neutral dark
+   like (23,26,35) rounds to (0,0,52) — a twelve-point chroma becomes a
+   fifty-two-point navy. Whole surfaces meant to read as dark grey came out as
+   saturated blue bars. So the snap is constrained: quantise the value, then
+   allow the channels to spread apart only as far as the colour was actually
+   colourful to begin with. Saturated colours are unaffected, because their
+   input chroma buys them the spread they need. */
+const LEVEL_STEP = 36;                       /* mean gap between MD levels */
+function levelIndex(v){
+  let best = 0, bestD = 1e9;
+  for (let i = 0; i < MD_LEVELS.length; i++){
+    const d = Math.abs(MD_LEVELS[i] - v);
+    if (d < bestD){ bestD = d; best = i; }
+  }
+  return best;
+}
+function mdRGB(r, g, b){
+  r = r < 0 ? 0 : r > 255 ? 255 : r;
+  g = g < 0 ? 0 : g > 255 ? 255 : g;
+  b = b < 0 ? 0 : b > 255 ? 255 : b;
+  const idx = [levelIndex(r), levelIndex(g), levelIndex(b)];
+  const chroma = Math.max(r, g, b) - Math.min(r, g, b);
+  const spread = Math.round(chroma / LEVEL_STEP);
+  if (idx[0] - Math.min(...idx) > spread || Math.max(...idx) - idx[0] > spread ||
+      Math.max(...idx) - Math.min(...idx) > spread){
+    /* anchor on the channel nearest the colour's own mean, then clamp */
+    const mean = (r + g + b) / 3, base = levelIndex(mean);
+    for (let i = 0; i < 3; i++)
+      idx[i] = idx[i] < base - spread ? base - spread
+             : idx[i] > base + spread ? base + spread : idx[i];
+  }
+  return "#" + hex2(MD_LEVELS[idx[0]]) + hex2(MD_LEVELS[idx[1]]) + hex2(MD_LEVELS[idx[2]]);
+}
 function parseHex(h){
   if (h.length === 4) h = "#" + h[1] + h[1] + h[2] + h[2] + h[3] + h[3];
   return [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];

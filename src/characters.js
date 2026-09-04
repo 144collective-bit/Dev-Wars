@@ -116,7 +116,7 @@ const CHARACTERS = [
   hp:940, walkF:246, walkB:300, jumpV:1360, jumpX:235, scale:1.08, bulk:-1,
   /* The spoon. Applies to punches only, and defaults to 1 for everyone else. */
   reach:1.22,
-  stageKey:"neon",
+  stageKey:"exchange",
   pal:{ skin:"#e0b088", skinS:"#a87a52", skinB:"#7e5636", suit:"#8a8072", suitS:"#5e564c",
         trim:"#6e6558", hair:"#8a5a30", belt:"#4a4238", glow:"#ffd23d", eye:"#20202c" },
   /* Materials the other three do not have. The hat is his one loud colour and

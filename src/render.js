@@ -98,6 +98,35 @@ function drawFighter(ctx, f, camX, opp){
   void opp;
 }
 
+/* Everything in a stage that is not baked into a layer. Crowd figures raise
+   and drop their arms on their own cycle, screens flicker, lamps buzz — small
+   and cheap, but a still background reads as a painting rather than a place. */
+function drawStageProps(ctx, st, camX, frame){
+  const P = st.props;
+  if (!P) return;
+  for (const s of P.screens){
+    const x = Math.round(s.x - camX * s.rate);
+    if (x < -20 || x > W + 20) continue;
+    const t = ((frame + s.phase) * s.speed) | 0;
+    ctx.fillStyle = s.rows[t % s.rows.length];
+    ctx.fillRect(x, s.y, s.w, s.h);
+    if ((t >> 1) % 5 === 0){ ctx.fillStyle = s.flash; ctx.fillRect(x, s.y, s.w, 1); }
+  }
+  for (const c of P.crowd){
+    const x = Math.round(c.x - camX * c.rate);
+    if (x < -12 || x > W + 12) continue;
+    const up = ((frame + c.phase) % c.period) < (c.period >> 1);
+    ctx.fillStyle = c.skin;
+    if (up){
+      ctx.fillRect(x - 3, c.y - 6, 2, 6);
+      ctx.fillRect(x + 2, c.y - 6, 2, 6);
+    } else {
+      ctx.fillRect(x - 3, c.y - 1, 2, 5);
+      ctx.fillRect(x + 2, c.y - 1, 2, 5);
+    }
+  }
+}
+
 function drawHUD(ctx, g){
   const [a, b] = g.fighters;
   const barW = 150, barH = 11;
@@ -158,10 +187,23 @@ function render(g){
   sctx.drawImage(st.near, Math.round(-camX * 0.55), 0);
   sctx.drawImage(st.floor, Math.round(-camX), GROUND_Y - 2);
 
+  drawStageProps(sctx, st, camX, g.frame);
+
   const order = g.fighters[0].state === S.ATTACK ? [1,0] : [0,1];
   for (const i of order) drawFighter(sctx, g.fighters[i], camX, g.fighters[1-i]);
   for (const pr of g.projectiles) drawProjectile(sctx, pr, camX, g.frame);
   for (const e of g.effects) drawEffect(sctx, e, camX);
+
+  /* Foreground last and scrolled fastest: desks and monitors between the
+     camera and the fight. */
+  if (st.fore) sctx.drawImage(st.fore, Math.round(-camX * 1.34), 0);
+
+  /* The HUD owns the top of the frame. Any stage detail that reaches into it
+     competes with the health bars for the same pixels, and in a fight the bars
+     have to win. A dithered scrim rather than an alpha fill, so it stays on
+     the palette. */
+  ditherRect(sctx, 0, 0, W, 40, null, "#000000", 0.34);
+  ditherRect(sctx, 0, 40, W, 8, null, "#000000", 0.17);
   sctx.restore();
 
   drawHUD(sctx, g);
