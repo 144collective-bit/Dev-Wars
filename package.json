@@ -1,6 +1,6 @@
 {
   "name": "iron-circuit",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
   "type": "module",
   "description": "A browser fighting game in one self-contained HTML file.",
@@ -9,6 +9,7 @@
     "test:behaviour": "node tests/behaviour.mjs",
     "test:golden": "node tests/golden.mjs",
     "test:record": "node tests/golden.mjs --update",
+    "test:soak": "node tests/soak.mjs",
     "build": "node tools/build.mjs",
     "build:check": "node tools/build.mjs --check"
   },

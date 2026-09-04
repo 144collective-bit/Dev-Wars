@@ -65,6 +65,8 @@ adapts to either. You can force the pad on or off in Settings.
 - **The super meter** fills as you deal and take damage. Full meter buys one
   super.
 - Best of three rounds, 99 seconds each, chip damage on blocked specials.
+- **A simultaneous kill is a draw.** Both fighters can be killed on the same
+  frame; the round is awarded to neither and the match moves on.
 
 ## Online play
 
@@ -123,6 +125,7 @@ Every deploy after that is automatic.
 npm install          # Playwright, for the headless test browser
 npm run build        # src/ -> fighter.html and dist/fighter-artifact.html
 npm test             # build check, behavioural tests, golden replays
+npm run test:soak    # every pairing played to a result; slower, run before a release
 ```
 
 **Edit `src/`, never `fighter.html`.** The deployable page is generated;
@@ -170,6 +173,14 @@ transient difference slip between the samples, and the first version of this
 suite did exactly that: moving one joint of one pose by a single pixel
 changed a hurtbox, and every scenario still passed. That is the precise class
 of change the suite exists to catch, so it now hashes continuously.
+
+**`tests/soak.mjs`** plays every character pairing at every difficulty
+through to a result — 27 matches, around 450,000 simulated frames — asserting
+invariants that must never break whatever the fighters do: finite positions,
+health inside its range, nobody leaving the stage, no state machine wedged for
+ten seconds, and projectile bookkeeping matching the projectiles that actually
+exist. It is the net for the bugs no unit test thought to describe, and it is
+kept out of `npm test` because it takes about a minute.
 
 ### When a golden fails
 

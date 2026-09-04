@@ -104,6 +104,7 @@ const Net = {
         /* Same match, new channel: agree where to pick up rather than
            starting over. */
         this.status("Reconnected. Resyncing…", "ok");
+        this.sentResume = true;
         this.send({ t:"resume", ver:GAME_VERSION, seed:this.seed, sim:this.simFrame });
       } else {
         this.state = "handshake";
@@ -140,7 +141,7 @@ const Net = {
       return;
     }
     this.state = "reconnecting";
-    this.resumeAt = -1; this.theirSim = -1;
+    this.resumeAt = -1; this.theirSim = -1; this.sentResume = false;
     this.reconnectUntil = Date.now() + RECONNECT_WINDOW_MS;
     this.status("Connection lost — reconnecting…");
     clearInterval(this.pingTimer);
@@ -169,15 +170,23 @@ const Net = {
   /* Both sides pick the later of the two positions and re-prime the input
      delay there, exactly as a match start does. Frames beyond that point were
      generated but never simulated by anyone, so dropping them is safe — and
-     both sides drop the same ones, which is what keeps them in step. */
+     both sides drop the same ones, which is what keeps them in step.
+
+     simFrame is deliberately NOT moved. It is the index of the next frame to
+     simulate, and it may only advance by actually simulating that frame. A
+     side that was behind when the connection died catches up by stepping
+     through the backfilled inputs, which is why the backfill exists; setting
+     the cursor forward instead would skip those frames and desync the two
+     games permanently. */
   finishResume(){
     const at = this.resumeAt;
-    if (at < 0) return;
+    if (at < 0 || at < this.simFrame) return;
     for (const f of Array.from(this.remoteInputs.keys())) if (f >= at) this.remoteInputs.delete(f);
     for (const f of Array.from(this.localInputs.keys()))  if (f >= at) this.localInputs.delete(f);
     for (let i = at; i < at + NET_DELAY; i++){ this.localInputs.set(i, 0); this.remoteInputs.set(i, 0); }
-    for (let f = 0; f < at; f++) if (!this.remoteInputs.has(f)) return;   /* still missing history */
-    this.simFrame = at;
+    /* Only the frames still to be simulated matter; earlier ones are spent. */
+    for (let f = this.simFrame; f < at; f++)
+      if (!this.remoteInputs.has(f) || !this.localInputs.has(f)) return;  /* backfill incomplete */
     this.sendFrame = at + NET_DELAY;
     this.resumeAt = -1; this.theirSim = -1;
     clearInterval(this.retryTimer);

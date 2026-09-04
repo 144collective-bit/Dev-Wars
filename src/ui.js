@@ -20,13 +20,20 @@ let scene = "title", titleFrame = 0;
 let game = null, mode = "cpu", ai = null, aiSide = 1, netStalled = 0, paused = false;
 let sel = { p1:"kestrel", p2:"brick", diff:"normal" };   /* overwritten by Settings.load() at boot */
 
+/* Set while the settings screen is waiting for a key. Leaving that screen has
+   to disarm it, or the keyboard stays swallowed and the next key pressed
+   anywhere silently rebinds an action. */
+let pendingKeyCapture = null;
+function cancelKeyCapture(){ if (pendingKeyCapture){ const c = pendingKeyCapture; pendingKeyCapture = null; c(); } }
+
 function panel(html){
+  cancelKeyCapture();
   uiRoot.innerHTML = '<div class="panel">' + html + "</div>";
   uiRoot.classList.remove("hide");
   const first = uiRoot.querySelector("button, input");
   if (first) first.focus();
 }
-function closePanel(){ uiRoot.innerHTML = ""; }
+function closePanel(){ cancelKeyCapture(); uiRoot.innerHTML = ""; }
 function $(sel){ return uiRoot.querySelector(sel); }
 function bind(id, fn){ const el = uiRoot.querySelector(id); if (el) el.addEventListener("click", e => { Sfx.unlock(); Sfx.play("select"); fn(e); }); }
 
@@ -67,6 +74,7 @@ function wireCharCards(onPick){
 
 function sceneTitle(){
   scene = "title";
+  paused = false;          /* a pause does not outlive the match it paused */
   Net.reset();
   panel(
     '<h1>Iron Circuit</h1><h2>An original arcade fighter</h2>' +
@@ -122,11 +130,19 @@ function sceneSettings(){
     btn.classList.add("listening");
     btn.textContent = "PRESS A KEY";
     Input.capturing = true;
-    const grab = e => {
-      e.preventDefault(); e.stopPropagation();
+    const disarm = () => {
       removeEventListener("keydown", grab, true);
       Input.capturing = false;
-      btn.classList.remove("listening");
+      pendingKeyCapture = null;
+      if (btn.isConnected){
+        btn.classList.remove("listening");
+        btn.textContent = keyLabel(Settings.binds[btn.dataset.side][btn.dataset.act]);
+      }
+    };
+    pendingKeyCapture = disarm;
+    const grab = e => {
+      e.preventDefault(); e.stopPropagation();
+      disarm();
       const { side, act } = btn.dataset;
       if (e.code !== "Escape"){
         const clash = bindConflict(e.code, side, act);

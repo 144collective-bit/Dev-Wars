@@ -79,6 +79,7 @@ class Game {
       this.separate();
       this.updateProjectiles();
       this.detectHits();
+      this.checkKO();
       for (const f of this.fighters){ f.stateFrame++; f.animFrame++; if (f.invuln > 0) f.invuln--; if (f.flash > 0) f.flash--;
         if (f.comboTimer > 0){ f.comboTimer--; if (f.comboTimer === 0) f.comboHits = 0; }
         if (f.comboShowT > 0) f.comboShowT--; }
@@ -386,7 +387,6 @@ class Game {
       this.hitstop = 12; this.shake = 8;
       this.fx("spark", cx, cy, { big:true, life:16 });
       Sfx.play("throw");
-      this.afterDamage(d);
       return;
     }
 
@@ -412,7 +412,6 @@ class Game {
       this.hitstop = 6;
       this.fx("guard", d.px + d.facing * 16, cy, { life: 12 });
       Sfx.play("block");
-      this.afterDamage(d);
       return;
     }
 
@@ -442,13 +441,31 @@ class Game {
     }
     this.fx("spark", cx, cy, { big: heavy, life: heavy ? 16 : 12 });
     Sfx.play(heavy ? "heavy" : (m.sfx === "kick" ? "kick" : "hit"));
-    this.afterDamage(d);
   }
-  afterDamage(d){
-    if (d.hp <= 0 && this.phase === PH.FIGHT) this.triggerKO(1 - d.id);
+  /* Deliberately does not end the round here. Two fighters can be killed in
+     the same frame — a trade where both connect — and ending it inside the
+     first hit's resolution would hand the win to whichever fighter the hit
+     loop happened to reach first, which is always player one. The decision
+     is made once, after every hit on the frame has been resolved. */
+  checkKO(){
+    if (this.phase !== PH.FIGHT) return;
+    const dead = [this.fighters[0].hp <= 0, this.fighters[1].hp <= 0];
+    if (!dead[0] && !dead[1]) return;
+    if (dead[0] && dead[1]) this.triggerDoubleKO();
+    else this.triggerKO(dead[0] ? 1 : 0);
   }
 
   /* ----------------------------------------------------------- round flow -- */
+  triggerDoubleKO(){
+    this.phase = PH.KO; this.phaseTimer = 0; this.koSide = -1;
+    this.hitstop = 16; this.shake = 12;
+    for (const f of this.fighters){
+      f.setState(S.KNOCKDOWN, ANIM.fall);
+      f.airborne = true; f.vy = 860; f.vx = f.facing * -640;
+    }
+    this.setAnnounce("DOUBLE K.O.", 120);
+    Sfx.play("ko");
+  }
   triggerKO(winner){
     this.phase = PH.KO; this.phaseTimer = 0; this.koSide = winner;
     this.hitstop = 16; this.shake = 12;

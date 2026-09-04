@@ -223,6 +223,50 @@ const net = await page.evaluate(() => {
     clearInterval(P.retryTimer); clearInterval(Q.retryTimer);
   }
 
+  /* A side that fell behind before the drop must catch up afterwards, not sit
+     permanently N frames adrift. The real loop drains several simulation
+     steps per animation frame, which is what lets it close the gap, so the
+     test drives it the same way — and then checks the only thing that
+     actually proves sync: that both sides agree at the SAME frame number. */
+  {
+    const P = mkNet(true, 0, 55), Q = mkNet(false, 1, 55);
+    let linked = true;
+    P.send = o => { if (linked) Q.onData(o); };
+    Q.send = o => { if (linked) P.onData(o); };
+    P.status = Q.status = () => {};
+    const gP = new Game(["vex","brick"], 55), gQ = new Game(["vex","brick"], 55);
+    const MAX_STEPS = 6;
+    const pAt = new Map();
+    const drive = n => { for (let i = 0; i < n; i++){
+      for (let s = 0; s < MAX_STEPS; s++){ const a = P.exchange(IN_RIGHT, gP); if (!a) break; gP.step(a); pAt.set(gP.frame, hashState(gP)); }
+      for (let s = 0; s < MAX_STEPS; s++){ const b = Q.exchange(IN_RIGHT, gQ); if (!b) break; gQ.step(b); }
+    } };
+    drive(150);
+    /* Only P keeps running: it has spare inputs buffered, so it pulls ahead
+       and its send cursor races far past what it has simulated. */
+    linked = false;
+    for (let i = 0; i < 400; i++)
+      for (let s = 0; s < MAX_STEPS; s++){ const a = P.exchange(IN_RIGHT, gP); if (!a) break; gP.step(a); pAt.set(gP.frame, hashState(gP)); }
+    const gapBefore = P.sendFrame - P.simFrame, behind = gP.frame - gQ.frame;
+    P.connectionLost("test"); Q.connectionLost("test");
+    linked = true;
+    P.send({ t:"resume", ver:GAME_VERSION, seed:P.seed, sim:P.simFrame });
+    Q.send({ t:"resume", ver:GAME_VERSION, seed:Q.seed, sim:Q.simFrame });
+    /* Measured at the resume itself. The side that is behind keeps a slightly
+       larger gap until it has caught up, which is the point. */
+    const gapAfter = P.sendFrame - P.simFrame;
+    drive(400);
+    out.catchUp = {
+      gapBefore, behind, gapAfter,
+      delayRestored: gapAfter === NET_DELAY,
+      caughtUp: gP.frame === gQ.frame,
+      liveSync: hashState(gP) === hashState(gQ),
+      agreesAtSameFrame: pAt.get(gQ.frame) === hashState(gQ),
+      noDesync: !P.desync && !Q.desync
+    };
+    clearInterval(P.retryTimer); clearInterval(Q.retryTimer);
+  }
+
   /* A network that cannot be traversed is a different failure from a peer
      that left, and says so. */
   {
@@ -271,6 +315,9 @@ ok("a desync is detected",                    net.desyncDetected);
 ok("a drop freezes both sides",               net.resume.droppedState && net.resume.frozeP && net.resume.frozeQ);
 ok("reconnecting resumes the same match",     net.resume.resumed && net.resume.advanced);
 ok("both sides stay in sync after a resume",  net.resume.inSync && net.resume.sameFrame && net.resume.noDesync);
+ok("a side left behind catches back up",      net.catchUp.behind > 0 && net.catchUp.caughtUp);
+ok("resume restores the normal input delay",  net.catchUp.gapBefore > 100 && net.catchUp.delayRestored);
+ok("both agree at the same frame number",     net.catchUp.agreesAtSameFrame && net.catchUp.liveSync && net.catchUp.noDesync);
 ok("NAT failure is reported as such",         net.iceFailure.dead && net.iceFailure.mentionsTurn);
 ok("stale packets from a past match ignored", net.sessionFilter);
 ok("matching versions start a match",         net.handshake.matchingStarts);
@@ -278,6 +325,38 @@ ok("mismatched versions never start",         net.handshake.mismatchRefused);
 ok("mismatched versions warn the player",     net.handshake.mismatchWarned);
 ok("mismatched versions tell the peer",       net.handshake.mismatchTold);
 ok("mismatched versions close the link",      net.handshake.mismatchClosed);
+
+group("Round outcomes");
+const rounds = await page.evaluate(() => {
+  const settle = g => { for (let i = 0; i < 400 && !g.matchOver && g.phase !== PH.FIGHT; i++) g.step([0,0]); };
+  const fresh = () => { const g = new Game(["kestrel","brick"], 9); for (let i = 0; i < 110; i++) g.step([0,0]); return g; };
+  const out = {};
+  /* Both fighters killed on the same frame is a draw, not a win for whichever
+     one the hit loop happened to reach first. */
+  let g = fresh();
+  g.fighters[0].hp = 0; g.fighters[1].hp = 0;
+  g.checkKO();
+  out.doubleKO = { phase:g.phase, koSide:g.koSide, announce:g.announce };
+  settle(g);
+  out.doubleKOSettled = { wins:g.fighters.map(f=>f.wins), round:g.round, over:g.matchOver };
+
+  /* A single KO still awards the round to the survivor, both ways round. */
+  g = fresh(); g.fighters[1].hp = 0; g.checkKO();
+  const koA = g.koSide;
+  g = fresh(); g.fighters[0].hp = 0; g.checkKO();
+  out.singleKO = { p0survives: koA, p1survives: g.koSide };
+
+  /* Nobody dead, nothing happens. */
+  g = fresh(); g.checkKO();
+  out.noKO = g.phase;
+  return out;
+});
+ok("a simultaneous kill is a draw",        rounds.doubleKO.koSide === -1 && rounds.doubleKO.phase === 2);
+ok("a double KO says so",                  /DOUBLE/.test(rounds.doubleKO.announce));
+ok("a drawn round awards nobody",          rounds.doubleKOSettled.wins[0] === 0 && rounds.doubleKOSettled.wins[1] === 0);
+ok("a drawn round still advances",         rounds.doubleKOSettled.round === 2);
+ok("a single KO awards the survivor",      rounds.singleKO.p0survives === 0 && rounds.singleKO.p1survives === 1);
+eq("no KO leaves the round running",       rounds.noKO, 1);
 
 /* ------------------------------------------------------------ input path -- */
 group("Input");
