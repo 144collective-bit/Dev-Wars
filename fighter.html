@@ -225,7 +225,7 @@ const ROOM_PREFIX  = "ironcircuit-v1-";  /* namespaces room codes on the broker 
    apart. Bump this on EVERY release: a mismatched pair is refused up front
    with a "refresh the page" message, which is a far cheaper failure than a
    match that silently desyncs halfway through. */
-const GAME_VERSION = "2.3.0";
+const GAME_VERSION = "2.4.0";
 const NET_DELAY    = 3;                  /* frames of input delay in online play */
 
 /* ---- Screen / world constants -------------------------------------------- */
@@ -2298,7 +2298,7 @@ function poseBounds(pose, sc){
 /* An LRU, because at this density the whole roster's worth of frames does not
    fit in memory. Sized in bytes rather than entries so a big pose and a small
    one cost what they actually cost. */
-const SPRITE_BUDGET = 48 * 1024 * 1024;
+const SPRITE_BUDGET = 96 * 1024 * 1024;
 const spriteCache = new Map();
 let spriteBytes = 0;
 function cachePut(key, cv){
@@ -2352,20 +2352,69 @@ function patch(ctx, F, a, b, la, lb, color){
    shoulder than the elbow, a shin thicker at the knee than the ankle, and at
    this size that difference is what reads as anatomy. */
 const snap = v => Math.round(v * RS) / RS;
+
+/* Row spans for the capsule rasteriser, reused so a limb allocates nothing. */
+const _spanA = new Float32Array(2048), _spanB = new Float32Array(2048);
+
+/* A limb, solved as a capsule instead of stamped as a chain of squares.
+
+   Stamping was the whole reason the fighters read as blocky. A diagonal limb
+   was a run of overlapping axis-aligned boxes, so its edge quantised to the
+   STAMP rather than to the pixel grid — at 1x that was invisible, but at RS=4
+   each stamp is a 28x28 block and the staircase it leaves is enormous. Every
+   limb, every outline and every fist inherited it.
+
+   Solving the horizontal span per pixel row instead gives the exact silhouette
+   with hard edges, which is what pixel art is: the curve is right, and it is
+   still one solid colour per pixel with nothing blended. It also emits one
+   fillRect per row rather than one per stamp, so it is no more expensive. */
 function limbT(ctx, x0, y0, x1, y1, t0, t1, color){
-  const dx = x1 - x0, dy = y1 - y0;
-  const span = Math.max(Math.abs(dx), Math.abs(dy), 1);
-  /* Stamping one square per unit of travel overdraws by roughly the limb's own
-     thickness. A stamp every third of a thickness still overlaps on the
-     diagonal and does a third of the work. */
-  const tmin = Math.max(0.25, Math.min(t0, t1));
-  const steps = Math.max(1, Math.ceil(span / Math.max(0.5, tmin / 3)));
+  const ax = x0 * RS, ay = y0 * RS, bx = x1 * RS, by = y1 * RS;
+  const ra = Math.max(0.5, t0 * RS / 2), rb = Math.max(0.5, t1 * RS / 2);
+  const yTop = Math.floor(Math.min(ay - ra, by - rb));
+  const yBot = Math.ceil (Math.max(ay + ra, by + rb));
+  const H = yBot - yTop + 1;
+  if (H <= 0 || H > 2048) return;
+  for (let i = 0; i < H; i++){ _spanA[i] = 1e9; _spanB[i] = -1e9; }
+  const dx = bx - ax, dy = by - ay;
+  const len = Math.hypot(dx, dy);
+  /* Discs half a radius apart overlap enough that the union of their spans is
+     the capsule to well under a pixel, and it keeps the inner loop short. */
+  const steps = Math.max(1, Math.ceil(len / Math.max(1, Math.min(ra, rb) * 0.9)));
+  for (let s2 = 0; s2 <= steps; s2++){
+    const t = s2 / steps;
+    const cx = ax + dx * t, cy = ay + dy * t, r = ra + (rb - ra) * t, r2 = r * r;
+    const j0 = Math.max(yTop, Math.floor(cy - r)), j1 = Math.min(yBot, Math.ceil(cy + r));
+    for (let yy = j0; yy <= j1; yy++){
+      const d = (yy + 0.5) - cy, q = r2 - d * d;
+      if (q <= 0) continue;
+      const hw = Math.sqrt(q), i = yy - yTop;
+      const lo = cx - hw, hi = cx + hw;
+      if (lo < _spanA[i]) _spanA[i] = lo;
+      if (hi > _spanB[i]) _spanB[i] = hi;
+    }
+  }
+  /* One fillRect per row is correct and far too many draw calls — a long limb
+     is three hundred of them where the stamp version was thirty. Rows with an
+     identical span are merged into a single rect, which collapses the vertical
+     and near-vertical runs that make up most of a body. */
   ctx.fillStyle = color;
-  for (let i = 0; i <= steps; i++){
-    const f = i / steps;
-    const t = Math.max(1 / RS, t0 + (t1 - t0) * f);
-    const h = t / 2;
-    ctx.fillRect(snap(x0 + dx * f - h), snap(y0 + dy * f - h), snap(t), snap(t));
+  const inv = 1 / RS;
+  let i = 0;
+  while (i < H){
+    if (_spanB[i] < _spanA[i]){ i++; continue; }
+    const xa = Math.round(_spanA[i]);
+    let xb = Math.round(_spanB[i]);
+    if (xb <= xa) xb = xa + 1;                 /* never lose a thin limb */
+    let j = i + 1;
+    while (j < H && _spanB[j] >= _spanA[j] && Math.round(_spanA[j]) === xa){
+      let e = Math.round(_spanB[j]);
+      if (e <= xa) e = xa + 1;
+      if (e !== xb) break;
+      j++;
+    }
+    ctx.fillRect(xa * inv, (yTop + i) * inv, (xb - xa) * inv, (j - i) * inv);
+    i = j;
   }
 }
 /* Back-compatible uniform capsule. */
@@ -2407,7 +2456,15 @@ function limbShadedT(ctx, F, t0, t1, tn, lx, ly){
      toward the light. Seven bands across a limb is only possible at this
      density — at 1x there were four pixels to spend and no room for the two
      that matter most, the occlusion at the edge and the warm terminator. */
-  const seq = [tn.dk, tn.sh, tn.sss, tn.mid, tn.lit, tn.hi, tn.spec].filter(Boolean);
+  let seq = [tn.dk, tn.sh, tn.sss, tn.mid, tn.lit, tn.hi, tn.spec].filter(Boolean);
+  /* Bands are only worth solving while each still lands on its own pixels. */
+  const room = Math.max(3, Math.min(seq.length, Math.round(t * RS / 5)));
+  if (room < seq.length){
+    const pick = [];
+    for (let k = 0; k < room; k++)
+      pick.push(seq[Math.round(k * (seq.length - 1) / (room - 1))]);
+    seq = pick;
+  }
   const n = seq.length;
   for (let k = 0; k < n; k++){
     const f = k / n;
@@ -2474,7 +2531,7 @@ function buildSprite(ch, pose, facing, tint){
   const wUA = 6 + b, wFA = 5 + b, wTH = 9 + b, wSH = 7 + b, wTO = 16 + b*2;
   const UA = [wUA + 1, wUA - 1], FA = [wFA, wFA - 2];
   const TH = [wTH + 1, wTH - 2], SH = [wSH, wSH - 3];
-  const TO = [wTO - 4, wTO];
+  const TO = [wTO - 6, wTO + 1];
   const headW = 14 + (b > 0 ? 2 : 0), headH = 15 + (b > 0 ? 1 : 0);
 
   /* The key light sits in front of the fighter and above, so it follows the
@@ -2647,8 +2704,24 @@ function buildSprite(ch, pose, facing, tint){
   }
 
   /* --- pass 3: the torso, and what it is wearing ------------------------- */
-  limbShadedT(c, Fto, TO[0], TO[1],
-              { rim:null, sh:suitF.sh, mid:suitF.mid, lit:suitF.lit, hi:suitF.hi }, lx, ly);
+  /* Two masses rather than one capsule: a narrow waist off the hips and a
+     wider chest over it. A single tapered tube is the shape of a bollard, and
+     it was the largest flat area left on the body. The overlap is what makes
+     the waist read as a waist. */
+  {
+    const body = { rim:null, ao:suitF.ao, dk:suitF.dk, sh:suitF.sh, mid:suitF.mid,
+                   lit:suitF.lit, hi:suitF.hi, spec:null, bnc:suitF.bnc };
+    const waistTop = Fto.len * 0.62, chestBot = Fto.len * 0.34;
+    const wp = Fto.at(waistTop, 0), cb = Fto.at(chestBot, 0), nk = Fto.at(Fto.len, 0);
+    const Fw = frameOf(Fto.x0, Fto.y0, wp[0], wp[1]);
+    const Fc = frameOf(cb[0], cb[1], nk[0], nk[1]);
+    if (!flash){
+      limbT(c, Fto.x0, Fto.y0, wp[0], wp[1], TO[0] + 1.5, TO[0] + 0.5, OL);
+      limbT(c, cb[0], cb[1], nk[0], nk[1], TO[1] - 0.5, TO[1] + 1.5, OL);
+    }
+    limbShadedT(c, Fw, TO[0], TO[0] - 1, body, lx, ly);
+    limbShadedT(c, Fc, TO[1] - 2, TO[1], body, lx, ly);
+  }
   const ts = (lx * Fto.vx + ly * Fto.vy) >= 0 ? 1 : -1;   /* the front/lit side */
   const half = TO[1] >> 1, TL = Fto.len;
   /* Shoulder caps. A deltoid is the difference between an arm bolted to a box
@@ -2713,13 +2786,23 @@ function buildSprite(ch, pose, facing, tint){
   /* --- pass 4: the head -------------------------------------------------- */
   const hw = headW, hh = headH;
   const hx = J.hd[0] - (hw >> 1), hy = J.hd[1] - (hh >> 1);
-  const headRow = (r) => {
-    const i = clamp(Math.round(r / (hh - 1) * (SKULL.length - 1)), 0, SKULL.length - 1);
-    const w = Math.max(3, Math.round(hw * SKULL[i]));
+  /* The skull, sampled between profile entries rather than snapped to one.
+     Drawn a whole world unit at a time it had flat sides and square corners —
+     which read as blocky the moment the limbs became real capsules. */
+  const headSpan = (r) => {
+    const f = clamp(r / (hh - 1), 0, 1) * (SKULL.length - 1);
+    const i = Math.min(SKULL.length - 2, Math.floor(f)), g = f - i;
+    const t = SKULL[i] + (SKULL[i + 1] - SKULL[i]) * g;
+    const w = Math.max(3, hw * t);
     /* the muzzle: the mid rows push forward, which is what puts a face on the
        profile instead of a flat wall */
-    const push = (r >= 5 && r <= 10) ? 1 : 0;
-    return [ hx + ((hw - w) >> 1) + facing * push, w ];
+    const push = (r >= 4.5 && r <= 10.5) ? 1 : 0;
+    return [ hx + (hw - w) / 2 + facing * push, w ];
+  };
+  /* Feature placement still works in whole rows, snapped to the pixel grid. */
+  const headRow = (r) => {
+    const [x, w] = headSpan(r);
+    return [ snap(x), snap(w) ];
   };
   /* `back` counts pixels in from the face; negative protrudes past it. */
   const fx = (r, back, wid) => {
@@ -2730,15 +2813,16 @@ function buildSprite(ch, pose, facing, tint){
     const [x, w] = headRow(r);
     return facing > 0 ? x + off : x + w - off - wid;
   };
+  const Q = 1 / RS;
   c.fillStyle = OL;
-  for (let r = -1; r <= hh; r++){
-    const [x, w] = headRow(clamp(r, 0, hh - 1));
-    c.fillRect(x - 1, hy + r, w + 2, 1);
+  for (let py = -RS; py < (hh + 1) * RS; py++){
+    const [x, w] = headSpan(clamp(py * Q, 0, hh - 1));
+    c.fillRect(snap(x - 0.75), hy + py * Q, snap(w + 1.5), Q);
   }
-  for (let r = 0; r < hh; r++){
-    const [x, w] = headRow(r);
-    c.fillStyle = col(P.skinMid);
-    c.fillRect(x, hy + r, w, 1);
+  c.fillStyle = col(P.skinMid);
+  for (let py = 0; py < hh * RS; py++){
+    const [x, w] = headSpan(py * Q);
+    c.fillRect(snap(x), hy + py * Q, snap(w), Q);
   }
   if (!flash){
     /* The face, in quarter-unit steps — one hardware pixel at this density.
@@ -2767,8 +2851,10 @@ function buildSprite(ch, pose, facing, tint){
     for (let r = 1; r <= hh - 3; r++) dr(B_(r, 0, 2), hy + r, 2, 1, P.skinDk);
     for (let r = 3; r <= hh - 5; r++) dr(B_(r, 2, 1), hy + r, 1, 1, P.skinSh);
     dr(F_(3, 0.75, 2.5), hy + 2.5, 2.5, 1, P.skinHi);         /* forehead */
-    for (let r = 9; r <= hh - 3; r++)                         /* jaw terminator */
-      dr(F_(r, 3.25, 1.25), hy + r, 1.25, 1, P.skinSSS);
+    for (let r = 9; r <= hh - 3; r++){                        /* jaw terminator */
+      const [bxx, bww] = headRow(r);
+      dr(bxx + (facing > 0 ? 0.25 : bww - 1), hy + r, 0.75, 1, P.skinSSS);
+    }
 
     /* brow ridge, and the socket it casts into */
     dr(F_(6, 0.25, 4.5), hy + 5.75, 4.5, 0.5, P.skinSh);
@@ -2814,9 +2900,9 @@ function buildSprite(ch, pose, facing, tint){
   /* beard first, so the hat and hair sit over it */
   if (G.beard && !flash){
     c.fillStyle = P.hairMid;
-    for (let r = 9; r < hh; r++){
-      const [x, w] = headRow(r);
-      c.fillRect(x + 1, hy + r, w - 2, 1);
+    for (let py = 9 * RS; py < hh * RS; py++){
+      const [x, w] = headSpan(py / RS);
+      c.fillRect(snap(x + 0.5), hy + py / RS, snap(w - 1), 1 / RS);
     }
     c.fillRect(bx(8, 1, 2), hy + 8, 2, 4);
     c.fillStyle = P.hairDk;
@@ -2866,10 +2952,10 @@ function buildSprite(ch, pose, facing, tint){
     /* Hair, cut to the skull rather than laid on it as a cap: it follows the
        crown's own taper, falls further down the back, and takes a lit streak
        where the key light crosses it. */
-    for (let r = 0; r < 6; r++){
-      const [x, w] = headRow(r);
-      c.fillStyle = col(P.hairMid);
-      c.fillRect(x, hy + r, w, 1);
+    c.fillStyle = col(P.hairMid);
+    for (let py = 0; py < 6 * RS; py++){
+      const [x, w] = headSpan(py / RS);
+      c.fillRect(snap(x), hy + py / RS, snap(w), 1 / RS);
     }
     for (let r = 6; r < 10; r++){
       c.fillStyle = col(P.hairMid);
@@ -2888,9 +2974,16 @@ function buildSprite(ch, pose, facing, tint){
   }
 
   /* --- pass 5: the near side, carrying the key light --------------------- */
-  limbShadedT(c, Fth, TH[0], TH[1], pantsF, lx, ly);
+  const edged = (F, t0, t1, tone) => {
+    if (!flash){
+      const [ex, ey] = F.at(F.len, 0);
+      limbT(c, F.x0, F.y0, ex, ey, t0 + 1.5, t1 + 1.5, OL);
+    }
+    limbShadedT(c, F, t0, t1, tone, lx, ly);
+  };
+  edged(Fth, TH[0], TH[1], pantsF);
   if (!flash) band(c, Fth, 2, 2, (TH[0] >> 1) - 1, col(P.pantsLit || P.suitLit));
-  limbShadedT(c, Fsh, SH[0], SH[1], pantsF, lx, ly);
+  edged(Fsh, SH[0], SH[1], pantsF);
   if (!flash) band(c, Fsh, Fsh.len - 5, 1, (SH[1] >> 1) + 1, col(P.pantsDk || P.suitDk));
   boot(Ffo, footLen, footH, footMid, footLit, footDk, 1);
   if (G.bigFeet && !flash){
@@ -2899,9 +2992,9 @@ function buildSprite(ch, pose, facing, tint){
       for (let j = -1; j <= 0; j++)
         dot(c, Ffo.at(3 + t * 3, j * (Ffo.vy >= 0 ? 1 : -1) - 1), P.pawDk);
   }
-  limbShadedT(c, Fua, UA[0], UA[1], suitF, lx, ly);
+  edged(Fua, UA[0], UA[1], suitF);
   if (!flash) band(c, Fua, Fua.len - 3, 2, (UA[1] >> 1) + 1, col(P.suitLit));
-  limbShadedT(c, Ffa, FA[0], FA[1], skinF, lx, ly);
+  edged(Ffa, FA[0], FA[1], skinF);
   fist(Ffa, wFA, skinF, 1);
 
   /* The weapon rides the forearm vector, so it is correct in every pose. */
