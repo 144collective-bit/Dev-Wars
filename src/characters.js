@@ -15,6 +15,7 @@ const sp = (o) => mkMove(Object.assign({ type:"special", meterHit:34, meterBlock
 const CHARACTERS = [
 {
   key:"kestrel", name:"Kestrel", role:"All-rounder",
+  gear:{ garb:"gi" },
   blurb:"Even walk speed, a projectile to control space, and a rising uppercut that beats anything jumping in. The one to learn the game on.",
   hp:1000, walkF:300, walkB:245, jumpV:1420, jumpX:290, scale:1.00, bulk:0,
   stageKey:"dockyard",
@@ -47,6 +48,7 @@ const CHARACTERS = [
 },
 {
   key:"brick", name:"Brick", role:"Heavy",
+  gear:{ garb:"overalls" },
   blurb:"Walks like a cement mixer and hits like one. A command grab that goes straight through guard, and enough health to walk into range.",
   hp:1150, walkF:222, walkB:180, jumpV:1330, jumpX:250, scale:1.12, bulk:2,
   stageKey:"foundry",
@@ -81,6 +83,7 @@ const CHARACTERS = [
 },
 {
   key:"vex", name:"Vex", role:"Speed / charge",
+  gear:{ garb:"suit" },
   blurb:"Fastest walk in the game and a charge projectile that fires almost instantly. Low health — you win by never being where the hit lands.",
   hp:900, walkF:362, walkB:305, jumpV:1500, jumpX:330, scale:0.95, bulk:-1,
   stageKey:"neon",
@@ -125,7 +128,8 @@ const CHARACTERS = [
            pants:{ hex:"#3f5f86", tones:3 },
            paw:{ hex:"#9a6438", tones:3 },
            spoon:{ hex:"#b4b8c0", tones:2 } },
-  gear:{ hat:true, ears:true, beard:true, hood:true, bigFeet:true, weapon:"spoon" },
+  gear:{ hat:true, ears:true, beard:true, hood:true, bigFeet:true,
+         weapon:"spoon", garb:"hoodie" },
   poses:{ idle1:POSE.sommiIdle1, idle2:POSE.sommiIdle2, idle3:POSE.sommiIdle3 },
   specials:[
     { key:"flick", check:(mb,b)=> (b & PUNCHES) && mb.qcb(),

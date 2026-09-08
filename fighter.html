@@ -225,7 +225,7 @@ const ROOM_PREFIX  = "ironcircuit-v1-";  /* namespaces room codes on the broker 
    apart. Bump this on EVERY release: a mismatched pair is refused up front
    with a "refresh the page" message, which is a far cheaper failure than a
    match that silently desyncs halfway through. */
-const GAME_VERSION = "1.7.0";
+const GAME_VERSION = "1.8.0";
 const NET_DELAY    = 3;                  /* frames of input delay in online play */
 
 /* ---- Screen / world constants -------------------------------------------- */
@@ -1268,6 +1268,7 @@ const sp = (o) => mkMove(Object.assign({ type:"special", meterHit:34, meterBlock
 const CHARACTERS = [
 {
   key:"kestrel", name:"Kestrel", role:"All-rounder",
+  gear:{ garb:"gi" },
   blurb:"Even walk speed, a projectile to control space, and a rising uppercut that beats anything jumping in. The one to learn the game on.",
   hp:1000, walkF:300, walkB:245, jumpV:1420, jumpX:290, scale:1.00, bulk:0,
   stageKey:"dockyard",
@@ -1300,6 +1301,7 @@ const CHARACTERS = [
 },
 {
   key:"brick", name:"Brick", role:"Heavy",
+  gear:{ garb:"overalls" },
   blurb:"Walks like a cement mixer and hits like one. A command grab that goes straight through guard, and enough health to walk into range.",
   hp:1150, walkF:222, walkB:180, jumpV:1330, jumpX:250, scale:1.12, bulk:2,
   stageKey:"foundry",
@@ -1334,6 +1336,7 @@ const CHARACTERS = [
 },
 {
   key:"vex", name:"Vex", role:"Speed / charge",
+  gear:{ garb:"suit" },
   blurb:"Fastest walk in the game and a charge projectile that fires almost instantly. Low health — you win by never being where the hit lands.",
   hp:900, walkF:362, walkB:305, jumpV:1500, jumpX:330, scale:0.95, bulk:-1,
   stageKey:"neon",
@@ -1378,7 +1381,8 @@ const CHARACTERS = [
            pants:{ hex:"#3f5f86", tones:3 },
            paw:{ hex:"#9a6438", tones:3 },
            spoon:{ hex:"#b4b8c0", tones:2 } },
-  gear:{ hat:true, ears:true, beard:true, hood:true, bigFeet:true, weapon:"spoon" },
+  gear:{ hat:true, ears:true, beard:true, hood:true, bigFeet:true,
+         weapon:"spoon", garb:"hoodie" },
   poses:{ idle1:POSE.sommiIdle1, idle2:POSE.sommiIdle2, idle3:POSE.sommiIdle3 },
   specials:[
     { key:"flick", check:(mb,b)=> (b & PUNCHES) && mb.qcb(),
@@ -1513,24 +1517,76 @@ function drawTextShadow(ctx, str, x, y, color, shadow, sc=1, sp=1){
    A pose is rasterised into a small offscreen canvas and cached, keyed by
    character + pose + facing + tint. Poses are held for several frames at a
    time, so in practice each unique frame is drawn once for the whole match.
+
+   The rig gives joint positions; this file decides what a body made of those
+   joints looks like. It used to stamp a uniform capsule between each pair,
+   which produced articulated geometry rather than a character: arms ending in
+   stumps, a head with one pixel for an eye, a torso that was one flat mass.
+
+   What replaced it is closer to how cut-out animation works. Every segment
+   gets a local frame — one axis along the limb, one across it — and detail is
+   authored in THAT space: a cuff, a knuckle, a boot sole, a fold at the waist.
+   Because the detail is placed in the segment's own coordinates and rasterised
+   at its final orientation, it stays crisp at any angle. Nothing is rotated
+   after the fact, so nothing resamples into mush, and all 57 poses get the
+   detail for free without a single frame being redrawn by hand.
    ========================================================================== */
 
 const SPRITE_W = 150, SPRITE_H = 130, SPRITE_OX = 75, SPRITE_OY = 112;
 const spriteCache = new Map();
 
-/* Chunky capsule between two points: stamps square pixels along the segment
-   so edges stay hard instead of antialiasing into mush. */
-function limb(ctx, x0, y0, x1, y1, t, color){
+/* A segment's own coordinate system: `a` runs along it from (x0,y0), `b` runs
+   across it. Everything a limb wears is authored in these terms. */
+function frameOf(x0, y0, x1, y1){
+  const dx = x1 - x0, dy = y1 - y0;
+  const len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len, uy = dy / len;
+  return {
+    x0, y0, len, ux, uy, vx: -uy, vy: ux,
+    at(a, b){ return [ x0 + ux * a + this.vx * b, y0 + uy * a + this.vy * b ]; }
+  };
+}
+function dot(ctx, p, color){
+  ctx.fillStyle = color;
+  ctx.fillRect(Math.round(p[0]), Math.round(p[1]), 1, 1);
+}
+/* A strip across a limb at distance `a`: cuffs, straps, seams, sole edges. */
+function band(ctx, F, a, thick, half, color){
+  ctx.fillStyle = color;
+  for (let i = 0; i < thick; i++)
+    for (let j = -half; j <= half; j++){
+      const p = F.at(a + i, j);
+      ctx.fillRect(Math.round(p[0]), Math.round(p[1]), 1, 1);
+    }
+}
+/* A patch in segment space: a..a+la along, b..b+lb across. */
+function patch(ctx, F, a, b, la, lb, color){
+  ctx.fillStyle = color;
+  for (let i = 0; i < la; i++)
+    for (let j = 0; j < lb; j++){
+      const p = F.at(a + i, b + j);
+      ctx.fillRect(Math.round(p[0]), Math.round(p[1]), 1, 1);
+    }
+}
+
+/* Chunky capsule between two points, with independent end widths. The taper
+   is most of what separates a limb from a pipe: an upper arm is thicker at the
+   shoulder than the elbow, a shin thicker at the knee than the ankle, and at
+   this size that difference is what reads as anatomy. */
+function limbT(ctx, x0, y0, x1, y1, t0, t1, color){
   const dx = x1 - x0, dy = y1 - y0;
   const steps = Math.max(Math.abs(dx), Math.abs(dy), 1);
-  const h = t >> 1;
   ctx.fillStyle = color;
   for (let i = 0; i <= steps; i++){
-    const x = Math.round(x0 + dx * i / steps) - h;
-    const y = Math.round(y0 + dy * i / steps) - h;
-    ctx.fillRect(x, y, t, t);
+    const f = i / steps;
+    const t = Math.max(1, Math.round(t0 + (t1 - t0) * f));
+    const h = t >> 1;
+    ctx.fillRect(Math.round(x0 + dx * f) - h, Math.round(y0 + dy * f) - h, t, t);
   }
 }
+/* Back-compatible uniform capsule. */
+function limb(ctx, x0, y0, x1, y1, t, color){ limbT(ctx, x0, y0, x1, y1, t, t, color); }
+
 function blob(ctx, x, y, w, h, color){
   ctx.fillStyle = color;
   ctx.fillRect(Math.round(x - w/2), Math.round(y - h/2), w, h);
@@ -1545,19 +1601,53 @@ function roundRect(ctx, x, y, w, h, color){
 
 /* A limb shaded as a cylinder.
 
-   Passes, back to front: a cool rim offset away from the light, then the
-   shadow side at full width, then progressively narrower bands stepped
-   towards the light. Those offsets are the whole trick — they turn a flat
-   capsule into something with a round side, which is the difference between
-   this and the two-tone version it replaces. It costs nothing at draw time
-   because every pose is rasterised once and cached. */
-function limbShaded(ctx, x0, y0, x1, y1, t, tn, lx, ly){
-  if (tn.rim && t >= 5) limb(ctx, x0 - lx, y0 - ly, x1 - lx, y1 - ly, t, tn.rim);
-  limb(ctx, x0, y0, x1, y1, t, tn.sh);
-  if (t >= 4)  limb(ctx, x0 + lx,     y0 + ly,     x1 + lx,     y1 + ly,     t - 2, tn.mid);
-  if (t >= 7)  limb(ctx, x0 + lx*2,   y0 + ly*2,   x1 + lx*2,   y1 + ly*2,   t - 4, tn.lit);
-  if (t >= 14) limb(ctx, x0 + lx*3,   y0 + ly*3,   x1 + lx*3,   y1 + ly*3,   t - 8, tn.hi);
+   The tone bands step ACROSS the limb rather than along the world light
+   vector. That is the difference between a limb that happens to be lighter on
+   one side and one that reads as round: the highlight follows the arm when the
+   arm swings, and the terminator stays parallel to the bone. Which side gets
+   the light is decided once, by projecting the key light onto the segment's
+   own across-axis. */
+function limbShadedT(ctx, F, t0, t1, tn, lx, ly){
+  const [x1, y1] = F.at(F.len, 0);
+  const x0 = F.x0, y0 = F.y0;
+  const s = (lx * F.vx + ly * F.vy) >= 0 ? 1 : -1;
+  const ox = F.vx * s, oy = F.vy * s;
+  /* How far each band shifts, and how much narrower it gets, both scale with
+     the part. Fixed steps were tuned on a six-pixel arm and, applied to a
+     sixteen-pixel torso, put the widest highlight band across nearly the whole
+     chest — every fighter came out flat and over-lit from the waist up. */
+  const t = (t0 + t1) / 2;
+  const step = Math.max(1, Math.round(t / 6));
+  const nar  = Math.max(2, Math.round(t / 4));
+  const at = (k, w) => limbT(ctx, x0 + ox*step*k, y0 + oy*step*k,
+                                  x1 + ox*step*k, y1 + oy*step*k,
+                                  t0 - nar*k, t1 - nar*k, w);
+  at(0, tn.sh);
+  if (t >= 4)  at(1, tn.mid);
+  if (t >= 6)  at(2, tn.lit);
+  if (t >= 10) at(3, tn.hi);
 }
+/* The same limb, flattened: one dark mass and a single edge. Used for
+   everything on the far side of the body, where detail is a lie anyway. */
+function limbFar(ctx, F, t0, t1, tn, lx, ly){
+  const [x1, y1] = F.at(F.len, 0);
+  const s = (lx * F.vx + ly * F.vy) >= 0 ? 1 : -1;
+  const step = Math.max(1, Math.round((t0 + t1) / 12));
+  limbT(ctx, F.x0, F.y0, x1, y1, t0, t1, tn.sh);
+  limbT(ctx, F.x0 + F.vx*s*step, F.y0 + F.vy*s*step,
+             x1 + F.vx*s*step, y1 + F.vy*s*step,
+             Math.max(1, t0 - 3), Math.max(1, t1 - 3), tn.mid);
+}
+
+function limbShaded(ctx, x0, y0, x1, y1, t, tn, lx, ly){
+  limbShadedT(ctx, frameOf(x0, y0, x1, y1), t, t, tn, lx, ly);
+}
+
+/* The skull in profile, row by row as a fraction of the head's width. A brow
+   that overhangs, a cheek, and a chin that comes to a point — the three things
+   that stop a head reading as a box. */
+const SKULL = [0.60, 0.80, 0.92, 0.99, 1.00, 1.00, 1.00, 1.00,
+               0.99, 0.96, 0.92, 0.85, 0.76, 0.62, 0.44];
 
 function buildSprite(ch, pose, facing, tint){
   const cv = document.createElement("canvas");
@@ -1572,7 +1662,11 @@ function buildSprite(ch, pose, facing, tint){
   const hipF = [ J.pv[0] + facing * 3, J.pv[1] + 1 ];
   const hipB = [ J.pv[0] - facing * 3, J.pv[1] + 1 ];
 
+  /* Every limb is a pair now — thick end, thin end. */
   const wUA = 6 + b, wFA = 5 + b, wTH = 9 + b, wSH = 7 + b, wTO = 16 + b*2;
+  const UA = [wUA + 1, wUA - 1], FA = [wFA, wFA - 2];
+  const TH = [wTH + 1, wTH - 2], SH = [wSH, wSH - 3];
+  const TO = [wTO - 4, wTO];
   const headW = 14 + (b > 0 ? 2 : 0), headH = 15 + (b > 0 ? 1 : 0);
 
   /* The key light sits in front of the fighter and above, so it follows the
@@ -1588,7 +1682,7 @@ function buildSprite(ch, pose, facing, tint){
     ? { rim:null, sh:W_, mid:W_, lit:W_, hi:W_ }
     : { rim, sh, mid, lit, hi };
   const suitF = set(P.rim, P.suitSh, P.suitMid, P.suitLit, P.suitHi);
-  const suitB = set(null,  P.suitDk, P.suitSh,  P.suitMid, P.suitLit);
+  const suitB = set(null,  P.suitDk, P.suitSh,  P.suitSh,  P.suitSh);
   /* The rig drew the whole body from one material, which is fine for a gi and
      wrong for anyone wearing a top and trousers. A character that declares a
      `pants` material gets it on the legs. */
@@ -1596,10 +1690,10 @@ function buildSprite(ch, pose, facing, tint){
     ? set(P.rim, P.pantsDk || P.pantsMid, P.pantsMid, P.pantsLit || P.pantsMid, P.pantsLit || P.pantsMid)
     : suitF;
   const pantsB = P.pantsMid
-    ? set(null, P.pantsDk || P.pantsMid, P.pantsDk || P.pantsMid, P.pantsMid, P.pantsLit || P.pantsMid)
+    ? set(null, P.pantsDk || P.pantsMid, P.pantsMid, P.pantsMid, P.pantsMid)
     : suitB;
   const skinF = set(P.rim, P.skinDk, P.skinMid, P.skinLit, P.skinHi);
-  const skinB = set(null,  P.skinDk, P.skinDk,  P.skinMid, P.skinLit);
+  const skinB = set(null,  P.skinDk, P.skinDk,  P.skinDk,  P.skinDk);
   const col = x => flash ? W_ : x;
   const OL = flash ? W_ : P.line;
 
@@ -1609,70 +1703,247 @@ function buildSprite(ch, pose, facing, tint){
      of them being redrawn. That is cheap here and expensive on a hand-drawn
      sheet, which is worth remembering when deciding what a fighter holds. */
   const G = ch.gear || {};
-  const footW = G.bigFeet ? 13 : 9, footH = G.bigFeet ? 6 : 4;
-  const footMid = G.bigFeet ? P.pawMid : P.trimMid;
-  const footLit = G.bigFeet ? P.pawLit : P.trimLit;
+  const footLen = G.bigFeet ? 8 : 6, footH = G.bigFeet ? 3 : 2;
+  const footMid = col(G.bigFeet ? P.pawMid : P.trimMid);
+  const footLit = col(G.bigFeet ? P.pawLit : P.trimLit);
+  const footDk  = col(G.bigFeet ? (P.pawDk || P.pawMid) : P.trimMid);
 
-  /* Pass 1: silhouette outline, one pixel fatter than every part. */
-  limb(c, J.sB[0],J.sB[1], J.eB[0],J.eB[1], wUA+2, OL);
-  limb(c, J.eB[0],J.eB[1], J.hB[0],J.hB[1], wFA+2, OL);
-  limb(c, hipB[0],hipB[1], J.kB[0],J.kB[1], wTH+2, OL);
-  limb(c, J.kB[0],J.kB[1], J.fB[0],J.fB[1], wSH+2, OL);
-  limb(c, J.pv[0],J.pv[1], J.nk[0],J.nk[1], wTO+2, OL);
-  limb(c, hipF[0],hipF[1], J.kF[0],J.kF[1], wTH+2, OL);
-  limb(c, J.kF[0],J.kF[1], J.fF[0],J.fF[1], wSH+2, OL);
-  limb(c, J.sF[0],J.sF[1], J.eF[0],J.eF[1], wUA+2, OL);
-  limb(c, J.eF[0],J.eF[1], J.hF[0],J.hF[1], wFA+2, OL);
+  /* --- the frames every part is authored in ----------------------------- */
+  const Fua = frameOf(J.sF[0],J.sF[1], J.eF[0],J.eF[1]);
+  const Ffa = frameOf(J.eF[0],J.eF[1], J.hF[0],J.hF[1]);
+  const Fua2= frameOf(J.sB[0],J.sB[1], J.eB[0],J.eB[1]);
+  const Ffa2= frameOf(J.eB[0],J.eB[1], J.hB[0],J.hB[1]);
+  const Fth = frameOf(hipF[0],hipF[1], J.kF[0],J.kF[1]);
+  const Fsh = frameOf(J.kF[0],J.kF[1], J.fF[0],J.fF[1]);
+  const Fth2= frameOf(hipB[0],hipB[1], J.kB[0],J.kB[1]);
+  const Fsh2= frameOf(J.kB[0],J.kB[1], J.fB[0],J.fB[1]);
+  const Fto = frameOf(J.pv[0],J.pv[1], J.nk[0],J.nk[1]);
+
+  /* Standing, the foot points forward while the shin points down, so the two
+     are perpendicular. In a kick the leg is horizontal and the toe should
+     carry on along it instead. Rotating by how vertical the shin is gives
+     both, and everything between them, from one line. */
+  const footFrame = (Fs, fx, fy) => {
+    const t = Math.abs(Fs.uy);
+    const ang = -Math.PI / 2 * facing * t;
+    const cs = Math.cos(ang), sn = Math.sin(ang);
+    return frameOf(fx, fy, fx + (Fs.ux*cs - Fs.uy*sn), fy + (Fs.ux*sn + Fs.uy*cs));
+  };
+  const Ffo = footFrame(Fsh, J.fF[0], J.fF[1]);
+  const Ffo2= footFrame(Fsh2, J.fB[0], J.fB[1]);
+
+  /* --- parts ------------------------------------------------------------ */
+
+  /* A fist, built in the forearm's frame so the knuckles always lead the
+     punch. It used to be a square blob, which is what made every attack read
+     as a fighter waving a stump. */
+  const fist = (F, w, tone, pass) => {
+    const a = F.len, h = (w >> 1) + 1;
+    if (pass === 0){ band(c, F, a - 3, w + 5, h + 2, OL); return; }
+    band(c, F, a - 2, w + 3, h, tone.mid);
+    const s = (lx * F.vx + ly * F.vy) >= 0 ? 1 : -1;
+    patch(c, F, a - 2, s * h, w + 3, 1, tone.lit);          /* lit side */
+    patch(c, F, a - 2, -s * h, w + 3, 1, tone.sh);          /* shaded side */
+    if (!flash){
+      for (let k = -1; k <= 1; k++)                          /* knuckles */
+        patch(c, F, a + w, k * 2 - 1, 1, 2, tone.lit);
+      patch(c, F, a - 1, s * (h - 1), 3, 1, tone.hi);        /* thumb */
+    }
+    band(c, F, a - 4, 2, h, col(P.trimMid));                 /* wrist cuff */
+  };
+
+  /* A boot in the foot's own frame: sole, upper, toe cap, ankle cuff. */
+  const boot = (F, len, hgt, mid, lit, dk, pass) => {
+    const down = F.vy >= 0 ? 1 : -1;
+    if (pass === 0){
+      for (let a = -3; a <= len + 1; a++)
+        for (let j = -hgt - 2; j <= hgt + 1; j++) dot(c, F.at(a, j * down), OL);
+      return;
+    }
+    for (let a = -2; a <= len; a++)
+      for (let j = -hgt - 1; j <= hgt; j++) dot(c, F.at(a, j * down), mid);
+    for (let a = -2; a <= len; a++) dot(c, F.at(a, hgt * down), OL);          /* sole */
+    if (!flash){
+      for (let j = -hgt - 1; j <= hgt - 1; j++) dot(c, F.at(len, j * down), lit);
+      for (let a = -2; a <= 0; a++) dot(c, F.at(a, (-hgt - 1) * down), lit);  /* ankle */
+      dot(c, F.at(len - 1, (-hgt - 1) * down), lit);
+      for (let a = 0; a <= len - 2; a++) dot(c, F.at(a, (hgt - 1) * down), dk);
+    }
+  };
+
+  /* --- pass 1: silhouette, one pixel fatter than every part -------------- */
+  limbT(c, Fua2.x0,Fua2.y0, J.eB[0],J.eB[1], UA[0]+2, UA[1]+2, OL);
+  limbT(c, Ffa2.x0,Ffa2.y0, J.hB[0],J.hB[1], FA[0]+2, FA[1]+2, OL);
+  fist(Ffa2, wFA - 1, skinB, 0);
+  limbT(c, Fth2.x0,Fth2.y0, J.kB[0],J.kB[1], TH[0]+2, TH[1]+2, OL);
+  limbT(c, Fsh2.x0,Fsh2.y0, J.fB[0],J.fB[1], SH[0]+2, SH[1]+2, OL);
+  boot(Ffo2, footLen, footH, null, null, null, 0);
+  limbT(c, Fto.x0,Fto.y0, J.nk[0],J.nk[1], TO[0]+2, TO[1]+2, OL);
+  limbT(c, Fth.x0,Fth.y0, J.kF[0],J.kF[1], TH[0]+2, TH[1]+2, OL);
+  limbT(c, Fsh.x0,Fsh.y0, J.fF[0],J.fF[1], SH[0]+2, SH[1]+2, OL);
+  boot(Ffo, footLen, footH, null, null, null, 0);
+  limbT(c, Fua.x0,Fua.y0, J.eF[0],J.eF[1], UA[0]+2, UA[1]+2, OL);
+  limbT(c, Ffa.x0,Ffa.y0, J.hF[0],J.hF[1], FA[0]+2, FA[1]+2, OL);
+  fist(Ffa, wFA, skinF, 0);
   blob(c, J.hd[0], J.hd[1], headW+2, headH+2, OL);
-  blob(c, J.fF[0]+facing*2, J.fF[1], footW+2, footH+2, OL);
-  blob(c, J.fB[0]+facing*2, J.fB[1], footW+2, footH+2, OL);
   if (G.hood) blob(c, J.nk[0] - facing*5, J.nk[1] + 2, 15, 12, OL);
 
-  /* Pass 2: the parts, back to front. The far arm and leg use tones one step
-     down the ramp, which is how a sprite this small says "behind". */
-  limbShaded(c, J.sB[0],J.sB[1], J.eB[0],J.eB[1], wUA, suitB, lx, ly);
-  limbShaded(c, J.eB[0],J.eB[1], J.hB[0],J.hB[1], wFA-1, skinB, lx, ly);
-  blob(c, J.hB[0], J.hB[1], wFA+1, wFA+1, col(P.skinDk));
-  limbShaded(c, hipB[0],hipB[1], J.kB[0],J.kB[1], wTH, pantsB, lx, ly);
-  limbShaded(c, J.kB[0],J.kB[1], J.fB[0],J.fB[1], wSH, pantsB, lx, ly);
-  blob(c, J.fB[0]+facing*2, J.fB[1], footW-2, footH-1, col(G.bigFeet ? P.pawDk : P.trimMid));
+  /* The rim, once, over the silhouette. Everything drawn from here on covers
+     the interior, so what survives is the unlit outer edge and nothing else. */
+  if (!flash && P.rim){
+    const rimOf = (F, t0, t1) => {
+      const [x1, y1] = F.at(F.len, 0);
+      const s2 = (lx * F.vx + ly * F.vy) >= 0 ? 1 : -1;
+      limbT(c, F.x0 - F.vx*s2, F.y0 - F.vy*s2, x1 - F.vx*s2, y1 - F.vy*s2,
+            t0, t1, P.rim);
+    };
+    rimOf(Fto, TO[0], TO[1]);
+    rimOf(Fua, UA[0], UA[1]); rimOf(Ffa, FA[0], FA[1]);
+    rimOf(Fth, TH[0], TH[1]); rimOf(Fsh, SH[0], SH[1]);
+  }
+
+  /* --- pass 2: the far side, one tone step down the ramp ----------------- */
+  limbFar(c, Fua2, UA[0], UA[1], suitB, lx, ly);
+  limbFar(c, Ffa2, FA[0], FA[1], skinB, lx, ly);
+  fist(Ffa2, wFA - 1, skinB, 1);
+  limbFar(c, Fth2, TH[0], TH[1], pantsB, lx, ly);
+  limbFar(c, Fsh2, SH[0], SH[1], pantsB, lx, ly);
+  boot(Ffo2, footLen, footH, footDk, footMid, footDk, 1);
   if (G.hood){
     blob(c, J.nk[0] - facing*5, J.nk[1] + 2, 13, 10, col(P.suitSh));
     blob(c, J.nk[0] - facing*6, J.nk[1] + 1, 9, 7, col(P.suitDk));
   }
 
-  /* torso */
-  limbShaded(c, J.pv[0],J.pv[1], J.nk[0],J.nk[1], wTO, suitF, lx, ly);
+  /* --- pass 3: the torso, and what it is wearing ------------------------- */
+  limbShadedT(c, Fto, TO[0], TO[1],
+              { rim:null, sh:suitF.sh, mid:suitF.mid, lit:suitF.lit, hi:suitF.hi }, lx, ly);
+  const ts = (lx * Fto.vx + ly * Fto.vy) >= 0 ? 1 : -1;   /* the front/lit side */
+  const half = TO[1] >> 1, TL = Fto.len;
+  /* Shoulder caps. A deltoid is the difference between an arm bolted to a box
+     and an arm growing out of a body. */
+  blob(c, J.sF[0], J.sF[1], wUA + 3, wUA + 2, OL);
+  blob(c, J.sF[0], J.sF[1], wUA + 1, wUA, col(P.suitMid));
+  if (!flash) blob(c, J.sF[0] + lx, J.sF[1] + ly, wUA - 2, wUA - 3, P.suitLit);
+  if (!flash){
+    /* the line down the sternum, and two folds where the top gathers into
+       the belt */
+    for (let i = 0; i < 7; i++) dot(c, Fto.at(TL - 5 - i, ts * (half - 3)), P.suitLit);
+    for (let i = 0; i < 4; i++) dot(c, Fto.at(5, -ts * (half - 2 - i)), P.suitDk);
+    for (let i = 0; i < 3; i++) dot(c, Fto.at(9, -ts * (half - 3 - i)), P.suitDk);
+  }
   /* belt, with its own lit edge so it reads as a band and not a smear */
-  blob(c, J.pv[0], J.pv[1] + 1, wTO, 4, col(P.trimMid));
-  blob(c, J.pv[0] + lx, J.pv[1], wTO - 4, 1, col(P.trimLit));
+  band(c, Fto, 0, 4, half - 1, col(P.trimMid));
+  if (!flash) band(c, Fto, 1, 1, half - 3, P.trimLit);
+
+  if (!flash){
+    const garb = G.garb;
+    if (garb === "overalls"){
+      /* Bib and straps. Brick was a red silhouette; this is what says workman. */
+      for (let i = 0; i < 11; i++)
+        for (let j = 0; j < 6; j++)
+          dot(c, Fto.at(TL - 14 + i, ts * (half - 1) - j), P.suitLit);
+      for (let j = 0; j < 6; j++) dot(c, Fto.at(TL - 14, ts * (half - 1) - j), P.suitHi);
+      for (let i = 0; i < 12; i++){                       /* the two straps */
+        dot(c, Fto.at(TL - 3 - i, ts * (half - 2)), P.trimMid);
+        dot(c, Fto.at(TL - 3 - i, -ts * (half - 3)), P.trimMid);
+      }
+      dot(c, Fto.at(TL - 13, ts * (half - 2)), P.trimLit);   /* the two buckles */
+      dot(c, Fto.at(TL - 13, -ts * (half - 3)), P.trimLit);
+    } else if (garb === "gi"){
+      /* The lapel crossing down to the belt. */
+      for (let i = 0; i < 12; i++){
+        const a = TL - 3 - i, off = half - 2 - Math.floor(i * 0.42);
+        dot(c, Fto.at(a, ts * off), P.suitHi);
+        dot(c, Fto.at(a, ts * (off - 1)), P.suitLit);
+        dot(c, Fto.at(a - 1, -ts * (off - 2)), P.suitDk);
+      }
+    } else if (garb === "hoodie"){
+      /* Kangaroo pocket, and a pair of drawstrings off the collar. */
+      for (let i = 0; i < 5; i++)
+        for (let j = 0; j < 5; j++)
+          dot(c, Fto.at(5 + i, ts * (half - 1) - j), P.suitDk);
+      for (let j = 0; j < 5; j++) dot(c, Fto.at(5, ts * (half - 1) - j), P.suitSh);
+      for (let i = 0; i < 5; i++) dot(c, Fto.at(9, ts * (half - 1) - i), P.suitSh);
+      for (let i = 0; i < 4; i++){
+        dot(c, Fto.at(TL - 5 - i, ts * (half - 3)), P.trimLit);
+        dot(c, Fto.at(TL - 5 - i, ts * (half - 6)), P.trimLit);
+      }
+    } else if (garb === "suit"){
+      /* A zip and a high collar. */
+      for (let i = 0; i < 13; i++) dot(c, Fto.at(TL - 3 - i, ts * (half - 2)), P.suitHi);
+      for (let i = 0; i < 5; i++) dot(c, Fto.at(TL - 2, ts * (half - 2 - i)), P.trimLit);
+    }
+  }
 
   /* neck sits in the chin's shadow */
   blob(c, J.nk[0], J.nk[1] + 3, 7, 5, col(P.skinDk));
 
-  /* head */
-  const hx = J.hd[0] - (headW>>1), hy = J.hd[1] - (headH>>1);
-  roundRect(c, hx, hy, headW, headH, col(P.skinMid));
+  /* --- pass 4: the head -------------------------------------------------- */
+  const hw = headW, hh = headH;
+  const hx = J.hd[0] - (hw >> 1), hy = J.hd[1] - (hh >> 1);
+  const headRow = (r) => {
+    const i = clamp(Math.round(r / (hh - 1) * (SKULL.length - 1)), 0, SKULL.length - 1);
+    const w = Math.max(3, Math.round(hw * SKULL[i]));
+    /* the muzzle: the mid rows push forward, which is what puts a face on the
+       profile instead of a flat wall */
+    const push = (r >= 5 && r <= 10) ? 1 : 0;
+    return [ hx + ((hw - w) >> 1) + facing * push, w ];
+  };
+  /* `back` counts pixels in from the face; negative protrudes past it. */
+  const fx = (r, back, wid) => {
+    const [x, w] = headRow(r);
+    return facing > 0 ? x + w - back - wid : x + back;
+  };
+  const bx = (r, off, wid) => {
+    const [x, w] = headRow(r);
+    return facing > 0 ? x + off : x + w - off - wid;
+  };
+  c.fillStyle = OL;
+  for (let r = -1; r <= hh; r++){
+    const [x, w] = headRow(clamp(r, 0, hh - 1));
+    c.fillRect(x - 1, hy + r, w + 2, 1);
+  }
+  for (let r = 0; r < hh; r++){
+    const [x, w] = headRow(r);
+    c.fillStyle = col(P.skinMid);
+    c.fillRect(x, hy + r, w, 1);
+  }
   if (!flash){
-    /* lit on the side the light comes from, shaded on the other */
-    c.fillStyle = P.skinLit;
-    c.fillRect(facing > 0 ? hx + headW - 5 : hx + 1, hy + 4, 4, headH - 7);
-    c.fillStyle = P.skinDk;
-    c.fillRect(facing > 0 ? hx : hx + headW - 1, hy + 3, 1, headH - 5);
-    c.fillRect(hx + 1, hy + headH - 3, headW - 2, 2);            /* jaw */
-    /* a single lit pixel column at nose height reads as a profile */
-    c.fillStyle = P.skinHi;
-    c.fillRect(J.hd[0] + facing * ((headW>>1) - 1), hy + 7, 1, 2);
+    for (let r = 2; r <= hh - 4; r++){                       /* the lit plane */
+      c.fillStyle = P.skinLit; c.fillRect(fx(r, 1, 3), hy + r, 3, 1);
+    }
+    for (let r = 1; r <= hh - 3; r++){                       /* back of the skull */
+      c.fillStyle = P.skinDk;  c.fillRect(bx(r, 0, 2), hy + r, 2, 1);
+    }
+    c.fillStyle = P.skinDk;                                  /* brow and socket */
+    c.fillRect(fx(6, 0, 6), hy + 6, 6, 1);
+    c.fillRect(fx(7, 0, 5), hy + 7, 5, 1);
+    c.fillStyle = P.skinHi;  c.fillRect(fx(7, 1, 3), hy + 7, 3, 2);   /* eye */
+    c.fillStyle = P.line;    c.fillRect(fx(7, 1, 2), hy + 7, 2, 2);   /* pupil */
+    c.fillStyle = P.skinLit; c.fillRect(fx(8, -1, 2), hy + 8, 2, 1);  /* nose */
+    c.fillStyle = P.skinHi;  c.fillRect(fx(8, -1, 1), hy + 8, 1, 1);
+    c.fillStyle = P.skinDk;  c.fillRect(fx(9, -1, 2), hy + 9, 2, 1);
+    c.fillStyle = P.skinDk;  c.fillRect(fx(11, 2, 3), hy + 11, 3, 1); /* mouth */
+    const [jxx, jww] = headRow(hh - 2);                      /* jaw */
+    c.fillStyle = P.skinDk;  c.fillRect(jxx + 1, hy + hh - 2, jww - 2, 1);
+    c.fillStyle = P.skinDk;  c.fillRect(bx(8, 0, 2), hy + 7, 2, 3);   /* ear */
+    c.fillStyle = P.skinMid; c.fillRect(bx(8, 0, 1), hy + 8, 1, 1);
   }
   /* beard first, so the hat and hair sit over it */
   if (G.beard && !flash){
     c.fillStyle = P.hairMid;
-    c.fillRect(facing > 0 ? hx + 1 : hx + 1, hy + 9, headW - 2, headH - 9);
-    c.fillRect(facing > 0 ? hx + headW - 2 : hx, hy + 8, 2, 4);
+    for (let r = 9; r < hh; r++){
+      const [x, w] = headRow(r);
+      c.fillRect(x + 1, hy + r, w - 2, 1);
+    }
+    c.fillRect(bx(8, 1, 2), hy + 8, 2, 4);
     c.fillStyle = P.hairDk;
-    c.fillRect(hx + 1, hy + headH - 2, headW - 2, 2);
+    const [jx2, jw2] = headRow(hh - 1);
+    c.fillRect(jx2 + 1, hy + hh - 1, jw2 - 2, 1);
     c.fillStyle = P.hairLit;
-    c.fillRect(facing > 0 ? hx + headW - 4 : hx + 2, hy + 10, 2, 3);
+    c.fillRect(fx(10, 2, 2), hy + 10, 2, 3);
+    c.fillStyle = P.skinDk;                                    /* the mouth in it */
+    c.fillRect(fx(11, 2, 3), hy + 11, 3, 1);
   }
   if (G.hat){
     /* A novelty animal hat: bright, eared, and deliberately its own animal —
@@ -1694,11 +1965,11 @@ function buildSprite(ch, pose, facing, tint){
     /* Ears: wide at the base, six steps tall, swept back off the facing.
        Longer than this and they stop reading as ears and start reading as
        antennae. */
-    const ear = (bx) => {
+    const ear = (bxx) => {
       const draw = (pass) => {
         for (let i = 0; i < 6; i++){
           const w = Math.max(2, 6 - i);
-          const x = Math.round(bx - facing * i * 0.9) - (w >> 1);
+          const x = Math.round(bxx - facing * i * 0.9) - (w >> 1);
           if (pass === 0){ c.fillStyle = OL; c.fillRect(x - 1, hy - 5 - i*2, w + 2, 3); }
           else {
             c.fillStyle = col(i >= 4 ? P.pawDk : i < 2 ? P.hatLit : P.hatMid);
@@ -1710,48 +1981,57 @@ function buildSprite(ch, pose, facing, tint){
     };
     ear(hx + 3); ear(hx + headW - 4);
   } else {
-    /* hair: cap across the crown, wedge down the back of the skull */
-    roundRect(c, hx, hy, headW, 5, col(P.hairMid));
+    /* Hair, cut to the skull rather than laid on it as a cap: it follows the
+       crown's own taper, falls further down the back, and takes a lit streak
+       where the key light crosses it. */
+    for (let r = 0; r < 6; r++){
+      const [x, w] = headRow(r);
+      c.fillStyle = col(P.hairMid);
+      c.fillRect(x, hy + r, w, 1);
+    }
+    for (let r = 6; r < 10; r++){
+      c.fillStyle = col(P.hairMid);
+      c.fillRect(bx(r, 0, 3), hy + r, 3, 1);
+    }
     if (!flash){
       c.fillStyle = P.hairLit;
-      c.fillRect(facing > 0 ? hx + 4 : hx + 2, hy + 1, headW - 6, 1);
+      c.fillRect(fx(1, 3, 4), hy + 1, 4, 1);
+      c.fillRect(fx(2, 2, 3), hy + 2, 3, 1);
       c.fillStyle = P.hairDk;
-      c.fillRect(facing > 0 ? hx : hx + headW - 2, hy + 1, 2, 4);
+      c.fillRect(bx(1, 0, 2), hy + 1, 2, 4);
+      c.fillRect(bx(9, 0, 3), hy + 9, 3, 1);
+      c.fillStyle = P.hairMid;                                 /* hairline */
+      c.fillRect(fx(5, 1, 3), hy + 5, 3, 1);
     }
-    c.fillStyle = col(P.hairMid);
-    c.fillRect(facing > 0 ? hx : hx + headW - 3, hy + 4, 3, 5);
-  }
-  if (!flash){
-    c.fillStyle = P.line;
-    c.fillRect(J.hd[0] + facing * 2, hy + 7, 2, 3);              /* eye */
   }
 
-  /* front leg and front arm carry the key light */
-  limbShaded(c, hipF[0],hipF[1], J.kF[0],J.kF[1], wTH, pantsF, lx, ly);
-  limbShaded(c, J.kF[0],J.kF[1], J.fF[0],J.fF[1], wSH, pantsF, lx, ly);
-  blob(c, J.fF[0]+facing*2, J.fF[1], footW, footH, col(footMid));
-  blob(c, J.fF[0]+facing*2, J.fF[1]-1, footW-2, 1, col(footLit));
+  /* --- pass 5: the near side, carrying the key light --------------------- */
+  limbShadedT(c, Fth, TH[0], TH[1], pantsF, lx, ly);
+  if (!flash) band(c, Fth, 2, 2, (TH[0] >> 1) - 1, col(P.pantsLit || P.suitLit));
+  limbShadedT(c, Fsh, SH[0], SH[1], pantsF, lx, ly);
+  if (!flash) band(c, Fsh, Fsh.len - 5, 1, (SH[1] >> 1) + 1, col(P.pantsDk || P.suitDk));
+  boot(Ffo, footLen, footH, footMid, footLit, footDk, 1);
   if (G.bigFeet && !flash){
-    c.fillStyle = P.pawDk;
+    /* toe pads, spaced along the slipper */
     for (let t = 0; t < 3; t++)
-      c.fillRect(J.fF[0] + facing*(3 + t*3) - 1, J.fF[1] - 1, 2, 2);
+      for (let j = -1; j <= 0; j++)
+        dot(c, Ffo.at(3 + t * 3, j * (Ffo.vy >= 0 ? 1 : -1) - 1), P.pawDk);
   }
-  limbShaded(c, J.sF[0],J.sF[1], J.eF[0],J.eF[1], wUA, suitF, lx, ly);
-  limbShaded(c, J.eF[0],J.eF[1], J.hF[0],J.hF[1], wFA, skinF, lx, ly);
-  blob(c, J.hF[0], J.hF[1], wFA+3, wFA+3, col(P.skinMid));
-  blob(c, J.hF[0] + lx, J.hF[1] + ly, wFA, wFA, col(P.skinLit));
+  limbShadedT(c, Fua, UA[0], UA[1], suitF, lx, ly);
+  if (!flash) band(c, Fua, Fua.len - 3, 2, (UA[1] >> 1) + 1, col(P.suitLit));
+  limbShadedT(c, Ffa, FA[0], FA[1], skinF, lx, ly);
+  fist(Ffa, wFA, skinF, 1);
 
   /* The weapon rides the forearm vector, so it is correct in every pose. */
   if (G.weapon === "spoon"){
-    const dx = J.hF[0] - J.eF[0], dy = J.hF[1] - J.eF[1];
-    const len = Math.hypot(dx, dy) || 1;
-    const ux = dx / len, uy = dy / len;
-    const tx = J.hF[0] + ux * 12, ty = J.hF[1] + uy * 12;
-    limb(c, J.hF[0], J.hF[1], tx, ty, 4, OL);
+    const F = Ffa, a = F.len + (wFA >> 1);
+    const [gx, gy] = F.at(a - 2, 0);
+    const [tx, ty] = F.at(a + 10, 0);
+    limb(c, gx, gy, tx, ty, 4, OL);
     blob(c, tx, ty, 8, 7, OL);
-    limb(c, J.hF[0] + ux*2, J.hF[1] + uy*2, tx - ux*3, ty - uy*3, 2, col(P.spoonMid));
+    limb(c, gx, gy, tx - F.ux * 3, ty - F.uy * 3, 2, col(P.spoonMid));
     blob(c, tx, ty, 6, 5, col(P.spoonMid));
-    blob(c, tx - ux, ty - uy - 1, 4, 3, col(P.spoonLit));
+    if (!flash) blob(c, tx - F.ux, ty - F.uy - 1, 4, 3, P.spoonLit);
   }
   return cv;
 }
