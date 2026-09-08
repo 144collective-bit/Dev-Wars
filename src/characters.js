@@ -17,7 +17,10 @@ const CHARACTERS = [
   key:"kestrel", name:"Kestrel", role:"All-rounder",
   gear:{ garb:"gi" },
   blurb:"Even walk speed, a projectile to control space, and a rising uppercut that beats anything jumping in. The one to learn the game on.",
-  hp:1000, walkF:300, walkB:245, jumpV:1420, jumpX:290, scale:1.00, bulk:0,
+  hp:1000, walkF:300, walkB:245, jumpV:1420, jumpX:290, scale:1.00,
+  /* the reference build every other fighter is read against */
+  build:{ height:1.00, legs:1.00, torso:1.00, arms:1.00,
+          shoulders:1.00, hips:1.00, head:1.00, girth:0 },
   stageKey:"dockyard",
   pal:{ skin:"#e8b58a", skinS:"#b8825c", skinB:"#8a5f42", suit:"#3a6ee0", suitS:"#24479c",
         trim:"#f2f2f4", hair:"#5a3a20", belt:"#e8e2d4", glow:"#7fd8ff", eye:"#20202c" },
@@ -58,7 +61,12 @@ const CHARACTERS = [
   key:"brick", name:"Brick", role:"Heavy",
   gear:{ garb:"overalls" },
   blurb:"Walks like a cement mixer and hits like one. A command grab that goes straight through guard, and enough health to walk into range.",
-  hp:1150, walkF:222, walkB:180, jumpV:1330, jumpX:250, scale:1.12, bulk:2,
+  hp:1150, walkF:222, walkB:180, jumpV:1330, jumpX:250, scale:1.05,
+  /* short in the leg, long and wide in the body, small head. He loses a little
+     overall height and gains a great deal of width, which is what reads as
+     heavy — a heavy who is simply a bigger all-rounder reads as a giant. */
+  build:{ height:1.05, legs:0.86, torso:1.16, arms:0.95,
+          shoulders:1.32, hips:1.24, head:0.92, girth:3 },
   stageKey:"foundry",
   /* A deeper red than it looks like it wants to be: at the top of its ramp a
      mid red lightens into salmon and lands on top of his own skin tones, so
@@ -101,7 +109,11 @@ const CHARACTERS = [
   key:"vex", name:"Vex", role:"Speed / charge",
   gear:{ garb:"suit" },
   blurb:"Fastest walk in the game and a charge projectile that fires almost instantly. Low health — you win by never being where the hit lands.",
-  hp:900, walkF:362, walkB:305, jumpV:1500, jumpX:330, scale:0.95, bulk:-1,
+  hp:900, walkF:362, walkB:305, jumpV:1500, jumpX:330, scale:1.02,
+  /* long in the leg and arm, narrow through the shoulder and hip. Taller than
+     Kestrel now and thinner, where before he was the same man drawn smaller. */
+  build:{ height:1.02, legs:1.15, torso:0.90, arms:1.12,
+          shoulders:0.86, hips:0.86, head:1.02, girth:-2 },
   stageKey:"neon",
   pal:{ skin:"#efc6a8", skinS:"#bd8f72", skinB:"#8d6a54", suit:"#7d3ce0", suitS:"#4d1f96",
         trim:"#25f0d0", hair:"#f2f2f8", belt:"#25f0d0", glow:"#25f0d0", eye:"#20202c" },
@@ -140,7 +152,10 @@ const CHARACTERS = [
 {
   key:"sommi", name:"Sommi", role:"Zoner",
   blurb:"Longest reach in the game, on the end of a spoon. Walks backwards faster than he walks forwards, so he wins by making you come to him — and punishes you for arriving.",
-  hp:940, walkF:246, walkB:300, jumpV:1360, jumpX:235, scale:1.08, bulk:-1,
+  hp:940, walkF:246, walkB:300, jumpV:1360, jumpX:235, scale:1.04,
+  /* soft and slightly round, with the long arms his reach already implied */
+  build:{ height:1.04, legs:1.00, torso:1.06, arms:1.08,
+          shoulders:0.94, hips:1.06, head:1.05, girth:-1 },
   /* The spoon. Applies to punches only, and defaults to 1 for everyone else. */
   reach:1.22,
   stageKey:"exchange",

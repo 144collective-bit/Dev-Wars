@@ -193,6 +193,49 @@ const POSE = {
 /* Each pose carries its own name so the hurtbox table can key off it. The
    property is non-enumerable on purpose: the sprite rasteriser walks a pose
    with for...in expecting nothing but joints. */
+/* --- builds ----------------------------------------------------------------
+   A pose is one skeleton; a build is how a particular fighter is put together
+   on it. Non-uniform on purpose: a heavy is not a big all-rounder, he is short
+   in the leg, long and wide in the body, thick in the limb and small in the
+   head. Scaling everything by a single number — all the rig could do — is why
+   the roster read as four palette swaps of the same man.
+
+   Applied to the joints rather than to the drawing, so the silhouette, the
+   sprite and the baked hurtboxes all come out of the same numbers. Legs scale
+   from the floor, the torso from the pelvis it sits on, and arms from the
+   shoulder they hang off, which is what keeps the feet on the ground and the
+   hands attached however far a build is pushed. */
+const BUILD_DEFAULT = { height:1, legs:1, torso:1, arms:1,
+                        shoulders:1, hips:1, head:1, girth:0 };
+function applyBuild(B, pose){
+  B = B || BUILD_DEFAULT;
+  const out = {};
+  const pvY = pose.pv[1], nkY = pose.nk[1];
+  const pvY2 = pvY * B.legs;
+  const nkY2 = pvY2 + (nkY - pvY) * B.torso;
+  const H = B.height;
+  for (const k in pose){
+    const j = pose[k];
+    let x = j[0], y = j[1];
+    if (k === "fF" || k === "fB" || k === "kF" || k === "kB" || k === "pv"){
+      y = y * B.legs;  x = x * B.hips;
+    } else if (k === "nk"){
+      y = nkY2;
+    } else if (k === "hd"){
+      y = nkY2 + (y - nkY) * B.head;  x = x * B.head;
+    } else if (k === "sF" || k === "sB"){
+      y = nkY2 + (y - nkY) * B.torso; x = x * B.shoulders;
+    } else {                                   /* elbows and hands */
+      const s = pose[k[1] === "F" ? "sF" : "sB"];
+      const sy = nkY2 + (s[1] - nkY) * B.torso, sx = s[0] * B.shoulders;
+      x = sx + (x - s[0]) * B.arms;
+      y = sy + (y - s[1]) * B.arms;
+    }
+    out[k] = [Math.round(x * H), Math.round(y * H)];
+  }
+  return out;
+}
+
 /* --- in-betweens -----------------------------------------------------------
    A pose between two others. A t outside 0..1 extrapolates, which is how a
    smear and a follow-through are made: the limb carries past the pose it was

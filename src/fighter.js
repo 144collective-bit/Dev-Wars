@@ -91,16 +91,20 @@ class Fighter {
      drawing; changing what can be hit means editing src/hurtboxes.js, which
      is a deliberate gameplay edit and needs a GAME_VERSION bump. */
   hurtBoxes(){
-    const spec = HURT[this.pose().$name] || HURT_FALLBACK;
-    const sc = this.scale, fx = this.facing;
+    /* Keyed by character as well as pose: with non-uniform builds a box can no
+       longer be one shared shape multiplied by a scalar, because a fighter
+       short in the leg and long in the body is not a scaled copy of one who is
+       not. The boxes come out of the bake with the build already in them. */
+    const spec = HURT[this.ch.key + "|" + this.pose().$name] || HURT_FALLBACK;
+    const fx = this.facing;
     const wx = this.px, wy = GROUND_Y - this.py;
     const out = [];
     for (const b of spec){
       out.push({
-        x: fx > 0 ? wx + b[0] * sc : wx - (b[0] + b[2]) * sc,
-        y: wy + b[1] * sc,
-        w: b[2] * sc,
-        h: b[3] * sc + b[4]
+        x: fx > 0 ? wx + b[0] : wx - (b[0] + b[2]),
+        y: wy + b[1],
+        w: b[2],
+        h: b[3] + b[4]
       });
     }
     return out;

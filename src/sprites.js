@@ -193,8 +193,12 @@ const SKULL = [0.60, 0.80, 0.92, 0.99, 1.00, 1.00, 1.00, 1.00,
                0.99, 0.96, 0.92, 0.85, 0.76, 0.62, 0.44];
 
 function buildSprite(ch, pose, facing, tint){
-  const sc = ch.scale, b = ch.bulk, P = ch.p16;
-  const bd = poseBounds(pose, sc);
+  const P = ch.p16;
+  /* The joints this fighter actually has, rather than the shared skeleton
+     scaled by one number. */
+  const J0 = applyBuild(ch.build, pose);
+  const b = (ch.build || BUILD_DEFAULT).girth;
+  const bd = poseBounds(J0, 1);
   /* The drawing origin, in world units, relative to the figure's own origin
      (the point between the feet). Mirrored with the facing. */
   const ox = facing > 0 ? Math.floor(bd.x0) : -Math.ceil(bd.x1);
@@ -208,9 +212,8 @@ function buildSprite(ch, pose, facing, tint){
   c.imageSmoothingEnabled = false;
   const AX = -ox, AY = -oy;                 /* figure origin inside the canvas */
   const J = {};
-  for (const k in pose){
-    J[k] = [ AX + facing * Math.round(pose[k][0] * sc),
-             AY + Math.round(pose[k][1] * sc) ];
+  for (const k in J0){
+    J[k] = [ AX + facing * J0[k][0], AY + J0[k][1] ];
   }
   const hipF = [ J.pv[0] + facing * 3, J.pv[1] + 1 ];
   const hipB = [ J.pv[0] - facing * 3, J.pv[1] + 1 ];
