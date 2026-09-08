@@ -15,6 +15,19 @@ function worldTransform(ctx){
   ctx.setTransform(RS, 0, 0, RS, 0, 0);
   ctx.imageSmoothingEnabled = false;
 }
+/* Baked once: a soft darkening toward the corners. */
+let vignette = null;
+function makeVignette(){
+  const cv = document.createElement("canvas");
+  cv.width = RW; cv.height = RH;
+  const c = cv.getContext("2d");
+  const g = c.createRadialGradient(RW/2, RH*0.46, RH*0.30, RW/2, RH*0.46, RW*0.72);
+  g.addColorStop(0,    "rgba(0,0,0,0)");
+  g.addColorStop(0.62, "rgba(0,0,0,0.10)");
+  g.addColorStop(1,    "rgba(6,4,14,0.46)");
+  c.fillStyle = g; c.fillRect(0, 0, RW, RH);
+  return cv;
+}
 function blitRS(ctx, img, x, y){
   ctx.drawImage(img, x, y, img.width / RS, img.height / RS);
 }
@@ -219,6 +232,20 @@ function render(g){
   ditherRect(sctx, 0, 0, W, 40, null, "#000000", 0.34);
   ditherRect(sctx, 0, 40, W, 8, null, "#000000", 0.17);
   sctx.restore();
+
+  /* The stage's own light, over everything in it. */
+  if (st.grade){
+    sctx.globalCompositeOperation = st.grade.mode;
+    sctx.globalAlpha = st.grade.a;
+    sctx.fillStyle = st.grade.col;
+    sctx.fillRect(0, 0, W, H);
+    sctx.globalAlpha = 1;
+    sctx.globalCompositeOperation = "source-over";
+  }
+  /* A vignette, to sit the fight in the middle of the frame. Cheap, and the
+     one thing that most reliably separates a rendered scene from a drawing. */
+  if (!vignette) vignette = makeVignette();
+  sctx.drawImage(vignette, 0, 0, W, H);
 
   drawHUD(sctx, g);
 

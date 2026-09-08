@@ -182,26 +182,54 @@ const BAYER4 = [
   [ 3, 11,  1,  9],
   [15,  7, 13,  5]
 ];
+/* Ordered dithering, as a repeating pattern rather than a pixel loop.
+
+   At RS = 4 a single full-stage gradient covers well over a million hardware
+   pixels, and stamping them one at a time is most of a second per stage. A 4x4
+   tile filled once is the same picture. The pattern is scaled by 1/RS so its
+   cells are hardware pixels rather than world units — which is the difference
+   between a dither and a checkerboard of 4x4 blocks — and its phase is
+   anchored to the canvas origin, which is what keeps a stack of one-pixel
+   bands from collapsing into vertical pinstripes. */
+let patCtx = null;
+const ditherPatterns = new Map();
+function ditherPattern(over, cut){
+  const key = over + "|" + cut;
+  let p = ditherPatterns.get(key);
+  if (p) return p;
+  if (!patCtx) patCtx = document.createElement("canvas").getContext("2d");
+  const t = document.createElement("canvas");
+  t.width = 4; t.height = 4;
+  const tc = t.getContext("2d");
+  tc.fillStyle = over;
+  for (let j = 0; j < 4; j++)
+    for (let i = 0; i < 4; i++)
+      if (BAYER4[j][i] < cut) tc.fillRect(i, j, 1, 1);
+  p = patCtx.createPattern(t, "repeat");
+  if (p && p.setTransform) p.setTransform(new DOMMatrix([1/RS, 0, 0, 1/RS, 0, 0]));
+  ditherPatterns.set(key, p);
+  return p;
+}
 /* Fills a rect with `over` on `under`, mixed by ordered dither. ratio 0..1. */
 function ditherRect(ctx, x, y, w, h, under, over, ratio){
-  x = Math.round(x); y = Math.round(y); w = Math.round(w); h = Math.round(h);
+  const q = 1 / RS;
+  x = Math.round(x * RS) * q; y = Math.round(y * RS) * q;
+  w = Math.round(w * RS) * q; h = Math.round(h * RS) * q;
+  if (w <= 0 || h <= 0) return;
   if (under){ ctx.fillStyle = under; ctx.fillRect(x, y, w, h); }
   const cut = Math.round(ratio * 16);
   if (cut <= 0) return;
-  ctx.fillStyle = over;
-  if (cut >= 16){ ctx.fillRect(x, y, w, h); return; }
-  /* Indexed by absolute canvas position, not position within this rect. Keyed
-     to the rect, a one-pixel-tall band only ever reads row 0 of the matrix and
-     the dither collapses into vertical pinstripes — and a gradient drawn as a
-     stack of thin bands is exactly that case. */
-  for (let j = 0; j < h; j++)
-    for (let i = 0; i < w; i++)
-      if (BAYER4[(y + j) & 3][(x + i) & 3] < cut) ctx.fillRect(x + i, y + j, 1, 1);
+  if (cut >= 16){ ctx.fillStyle = over; ctx.fillRect(x, y, w, h); return; }
+  ctx.fillStyle = ditherPattern(over, cut);
+  ctx.fillRect(x, y, w, h);
 }
 /* A vertical gradient between two colours, dithered rather than blended —
    the Mega Drive sky. */
 function ditherGradient(ctx, x, y, w, h, top, bottom, steps){
-  steps = steps || h;
+  /* One band per hardware pixel row rather than per world unit: the ramp has
+     four times the steps to spend, so it reads as a gradient instead of as
+     four visible terraces. */
+  steps = steps || Math.max(1, Math.round(h * RS));
   const band = h / steps;
   for (let s = 0; s < steps; s++){
     const t = steps === 1 ? 0 : s / (steps - 1);

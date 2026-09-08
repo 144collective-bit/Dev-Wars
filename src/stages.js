@@ -22,6 +22,20 @@ function bands(ctx, x, y, w, h, colors){
     ctx.fillRect(x, Math.round(y + i*step), w, Math.ceil(step) + 1);
   }
 }
+/* Pixel-level grain. A surface drawn in whole world units is a field of 4x4
+   blocks at this density; a scatter of single hardware pixels is what stops
+   large flats reading as plastic. */
+function grain(ctx, x, y, w, h, color, density, rng){
+  const q = 1 / RS, n = Math.round(w * h * density);
+  ctx.fillStyle = color;
+  for (let i = 0; i < n; i++)
+    ctx.fillRect(x + (rng() % Math.round(w * RS)) * q,
+                 y + (rng() % Math.round(h * RS)) * q, q, q);
+}
+/* A line thinner than a world unit — panel seams, cable, rivet rows. */
+function hairline(ctx, x, y, w, h, color){
+  ctx.fillStyle = color; ctx.fillRect(x, y, w, h);
+}
 function noiseSpeckle(ctx, x, y, w, h, color, count, rng){
   ctx.fillStyle = color;
   for (let i = 0; i < count; i++)
@@ -192,6 +206,20 @@ function buildStage(key){
       ditherRect(f, bx - 4, by + bh + 2, bw + 8, 4, null, AMBER, 0.09);
     }
 
+    /* Panel seams, rivets and grain on the back wall. At a world unit per
+       line the wall could only ever be flat colour; a quarter unit is a seam. */
+    for (let x = 0; x < STAGE_W; x += 23){
+      hairline(f, x, 20, 0.25, MEZZ_Y - 20, md("#2c313f"));
+      hairline(f, x + 0.25, 20, 0.25, MEZZ_Y - 20, md("#12141b"));
+      for (let y = 26; y < MEZZ_Y - 4; y += 11){
+        hairline(f, x + 1.25, y, 0.5, 0.5, md("#3a4050"));
+        hairline(f, x + 1.25, y + 0.5, 0.5, 0.25, md("#12141b"));
+      }
+    }
+    for (let y = 20; y < MEZZ_Y; y += 19) hairline(f, 0, y, STAGE_W, 0.25, md("#282d39"));
+    grain(f, 0, 20, STAGE_W, MEZZ_Y - 20, md("#39404f"), 0.10, rng);
+    grain(f, 0, 20, STAGE_W, MEZZ_Y - 20, md("#14161d"), 0.10, rng);
+
     /* --- mezzanine: spectators, still above the fighters' heads ---------- */
     f.fillStyle = md("#3e4450"); f.fillRect(0, MEZZ_Y - 4, STAGE_W, 14);
     ditherRect(f, 0, MEZZ_Y - 4, STAGE_W, 14, null, md("#000000"), 0.22);
@@ -262,7 +290,11 @@ function buildStage(key){
       }
       n.fillStyle = md("#090a0f"); n.fillRect(0, by - 1, STAGE_W, dh + 2);
       n.fillStyle = md("#1e222c"); n.fillRect(0, by, STAGE_W, dh);
-      n.fillStyle = md("#282d39"); n.fillRect(0, by, STAGE_W, 1);
+      hairline(n, 0, by, STAGE_W, 0.5, md("#39404f"));
+      hairline(n, 0, by + 0.5, STAGE_W, 0.25, md("#4c5468"));
+      hairline(n, 0, by + dh - 0.25, STAGE_W, 0.25, md("#0a0c12"));
+      for (let x = 0; x < STAGE_W; x += 17) hairline(n, x, by + 1, 0.25, dh - 1.5, md("#141821"));
+      grain(n, 0, by, STAGE_W, dh, md("#2b3140"), 0.08, rng);
       for (let x = 5; x < STAGE_W; x += 34){
         n.fillStyle = md("#0d1712"); n.fillRect(x, by - 6, 13, 6);
         n.fillStyle = md("#0e2a16"); n.fillRect(x + 1, by - 5, 11, 4);
@@ -364,7 +396,19 @@ function buildStage(key){
     }
   }
 
-  return { far, near, fore, floor, props, accent, floorY: FL };
+  /* A room lights what is standing in it. Without this the fighters are lit
+     by one sun and the stage by another, and no amount of detail makes them
+     look like they occupy the same place. One blended pass over the finished
+     frame is what a modern game would call a grade; the old no-alpha rule made
+     it impossible, which is part of why the fighters always read as stickers. */
+  const GRADE = {
+    dockyard: { col:"#ff9a5c", a:0.13, mode:"overlay" },
+    foundry:  { col:"#ff7326", a:0.15, mode:"overlay" },
+    exchange: { col:"#3ce89a", a:0.08, mode:"overlay" },
+    neon:     { col:"#ff3d8b", a:0.10, mode:"overlay" }
+  };
+  return { far, near, fore, floor, props, accent, floorY: FL,
+           grade: GRADE[key] || null };
 }
 
 const STAGES = {};
