@@ -99,22 +99,21 @@ function patch(ctx, F, a, b, la, lb, color){
    is most of what separates a limb from a pipe: an upper arm is thicker at the
    shoulder than the elbow, a shin thicker at the knee than the ankle, and at
    this size that difference is what reads as anatomy. */
+const snap = v => Math.round(v * RS) / RS;
 function limbT(ctx, x0, y0, x1, y1, t0, t1, color){
   const dx = x1 - x0, dy = y1 - y0;
   const span = Math.max(Math.abs(dx), Math.abs(dy), 1);
   /* Stamping one square per unit of travel overdraws by roughly the limb's own
-     thickness, which is invisible at 1x and the dominant cost at 4x — the
-     squares are sixteen times the area but there are just as many of them. A
-     stamp every third of a thickness still overlaps on the diagonal (a step of
-     t/3 covers t*0.47 of gap at 45 degrees) and does a third of the work. */
-  const tmin = Math.max(1, Math.min(t0, t1));
-  const steps = Math.max(1, Math.ceil(span / Math.max(1, tmin / 3)));
+     thickness. A stamp every third of a thickness still overlaps on the
+     diagonal and does a third of the work. */
+  const tmin = Math.max(0.25, Math.min(t0, t1));
+  const steps = Math.max(1, Math.ceil(span / Math.max(0.5, tmin / 3)));
   ctx.fillStyle = color;
   for (let i = 0; i <= steps; i++){
     const f = i / steps;
-    const t = Math.max(1, Math.round(t0 + (t1 - t0) * f));
-    const h = t >> 1;
-    ctx.fillRect(Math.round(x0 + dx * f) - h, Math.round(y0 + dy * f) - h, t, t);
+    const t = Math.max(1 / RS, t0 + (t1 - t0) * f);
+    const h = t / 2;
+    ctx.fillRect(snap(x0 + dx * f - h), snap(y0 + dy * f - h), snap(t), snap(t));
   }
 }
 /* Back-compatible uniform capsule. */
@@ -145,21 +144,28 @@ function limbShadedT(ctx, F, t0, t1, tn, lx, ly){
   const x0 = F.x0, y0 = F.y0;
   const s = (lx * F.vx + ly * F.vy) >= 0 ? 1 : -1;
   const ox = F.vx * s, oy = F.vy * s;
-  /* How far each band shifts, and how much narrower it gets, both scale with
-     the part. Fixed steps were tuned on a six-pixel arm and, applied to a
-     sixteen-pixel torso, put the widest highlight band across nearly the whole
-     chest — every fighter came out flat and over-lit from the waist up. */
   const t = (t0 + t1) / 2;
-  const step = Math.max(1, Math.round(t / 6));
-  const nar  = Math.max(2, Math.round(t / 4));
-  const at = (k, w) => limbT(ctx, x0 + ox*step*k, y0 + oy*step*k,
-                                  x1 + ox*step*k, y1 + oy*step*k,
-                                  t0 - nar*k, t1 - nar*k, w);
-  at(0, tn.sh);
-  if (t >= 4)  at(1, tn.mid);
-  if (t >= 6)  at(2, tn.lit);
-  if (t >= 10) at(3, tn.hi);
+  const put = (off, shrink, col) =>
+    limbT(ctx, x0 + ox*off, y0 + oy*off, x1 + ox*off, y1 + oy*off,
+          t0 * (1 - shrink), t1 * (1 - shrink), col);
+  /* Light the floor throws back up, on the surface turned away from the key.
+     Without it the shadow side goes dead and the limb reads as a cut-out. */
+  if (tn.bnc) put(-t * 0.30, 0.62, tn.bnc);
+  /* The ladder, widest and darkest first, each band narrowing and stepping
+     toward the light. Seven bands across a limb is only possible at this
+     density — at 1x there were four pixels to spend and no room for the two
+     that matter most, the occlusion at the edge and the warm terminator. */
+  const seq = [tn.dk, tn.sh, tn.sss, tn.mid, tn.lit, tn.hi, tn.spec].filter(Boolean);
+  const n = seq.length;
+  for (let k = 0; k < n; k++){
+    const f = k / n;
+    /* Bunched toward the lit edge. Spread evenly the bands read as an airbrush
+       gradient; a real cylinder spends most of its width in the mid tones and
+       turns fast at the end. */
+    put(Math.pow(f, 1.35) * t * 0.56, Math.pow(f, 0.82) * 0.93, seq[k]);
+  }
 }
+
 /* The same limb, flattened: one dark mass and a single edge. Used for
    everything on the far side of the body, where detail is a lie anyway. */
 function limbFar(ctx, F, t0, t1, tn, lx, ly){
@@ -170,6 +176,10 @@ function limbFar(ctx, F, t0, t1, tn, lx, ly){
   limbT(ctx, F.x0 + F.vx*s*step, F.y0 + F.vy*s*step,
              x1 + F.vx*s*step, y1 + F.vy*s*step,
              Math.max(1, t0 - 3), Math.max(1, t1 - 3), tn.mid);
+  if (tn.bnc)
+    limbT(ctx, F.x0 - F.vx*s*step, F.y0 - F.vy*s*step,
+               x1 - F.vx*s*step, y1 - F.vy*s*step,
+               t0 * 0.30, t1 * 0.30, tn.bnc);
 }
 
 function limbShaded(ctx, x0, y0, x1, y1, t, tn, lx, ly){
@@ -219,24 +229,29 @@ function buildSprite(ch, pose, facing, tint){
 
   /* On a hit the whole fighter flashes white for a few frames. Swapping the
      tone sets rather than compositing keeps it a two-colour sprite. */
-  const W_ = "#ffffff";
   const flash = tint === "flash";
-  const set = (rim, sh, mid, lit, hi) => flash
-    ? { rim:null, sh:W_, mid:W_, lit:W_, hi:W_ }
-    : { rim, sh, mid, lit, hi };
-  const suitF = set(P.rim, P.suitSh, P.suitMid, P.suitLit, P.suitHi);
-  const suitB = set(null,  P.suitDk, P.suitSh,  P.suitSh,  P.suitSh);
-  /* The rig drew the whole body from one material, which is fine for a gi and
-     wrong for anyone wearing a top and trousers. A character that declares a
-     `pants` material gets it on the legs. */
-  const pantsF = P.pantsMid
-    ? set(P.rim, P.pantsDk || P.pantsMid, P.pantsMid, P.pantsLit || P.pantsMid, P.pantsLit || P.pantsMid)
-    : suitF;
-  const pantsB = P.pantsMid
-    ? set(null, P.pantsDk || P.pantsMid, P.pantsMid, P.pantsMid, P.pantsMid)
-    : suitB;
-  const skinF = set(P.rim, P.skinDk, P.skinMid, P.skinLit, P.skinHi);
-  const skinB = set(null,  P.skinDk, P.skinDk,  P.skinDk,  P.skinDk);
+  const W_ = "#ffffff";
+  const near = (r) => flash
+    ? { dk:W_, sh:W_, sss:null, mid:W_, lit:W_, hi:W_, spec:null, bnc:null }
+    : r;
+  const far = (r) => flash
+    ? { sh:W_, mid:W_, bnc:null }
+    : { sh: r.dk, mid: r.sh, bnc: r.bnc };
+  const R = {
+    skin:  { ao:P.skinAO, dk:P.skinDk, sh:P.skinSh, sss:P.skinSSS, mid:P.skinMid,
+             lit:P.skinLit, hi:P.skinHi, spec:P.skinSpec, bnc:P.skinBnc },
+    suit:  { ao:P.suitAO, dk:P.suitDk, sh:P.suitSh, sss:null, mid:P.suitMid,
+             lit:P.suitLit, hi:P.suitHi, spec:null, bnc:P.suitBnc },
+    pants: P.pantsMid
+      ? { ao:P.pantsAO || P.pantsDk, dk:P.pantsDk, sh:P.pantsDk, sss:null,
+          mid:P.pantsMid, lit:P.pantsLit, hi:P.pantsHi || P.pantsLit,
+          spec:null, bnc:P.suitBnc }
+      : null
+  };
+  if (!R.pants) R.pants = R.suit;
+  const suitF = near(R.suit), suitB = far(R.suit);
+  const pantsF = near(R.pants), pantsB = far(R.pants);
+  const skinF = near(R.skin), skinB = far(R.skin);
   const col = x => flash ? W_ : x;
   const OL = flash ? W_ : P.line;
 
@@ -281,18 +296,37 @@ function buildSprite(ch, pose, facing, tint){
      punch. It used to be a square blob, which is what made every attack read
      as a fighter waving a stump. */
   const fist = (F, w, tone, pass) => {
-    const a = F.len, h = (w >> 1) + 1;
-    if (pass === 0){ band(c, F, a - 3, w + 5, h + 2, OL); return; }
-    band(c, F, a - 2, w + 3, h, tone.mid);
-    const s = (lx * F.vx + ly * F.vy) >= 0 ? 1 : -1;
-    patch(c, F, a - 2, s * h, w + 3, 1, tone.lit);          /* lit side */
-    patch(c, F, a - 2, -s * h, w + 3, 1, tone.sh);          /* shaded side */
-    if (!flash){
-      for (let k = -1; k <= 1; k++)                          /* knuckles */
-        patch(c, F, a + w, k * 2 - 1, 1, 2, tone.lit);
-      patch(c, F, a - 1, s * (h - 1), 3, 1, tone.hi);        /* thumb */
+    const a = F.len, W2 = w + 2;
+    const P0 = F.at(a - 1.5, 0), P1 = F.at(a + w * 0.55, 0);
+    if (pass === 0){ limbT(c, P0[0],P0[1], P1[0],P1[1], W2 + 2.5, W2 + 2, OL); return; }
+    const s2 = (lx * F.vx + ly * F.vy) >= 0 ? 1 : -1;
+    limbT(c, P0[0],P0[1], P1[0],P1[1], W2 + 0.5, W2, tone.sh);   /* palm */
+    if (tone.bnc){
+      const B0 = F.at(a - 1.5, -s2 * W2 * 0.36), B1 = F.at(a + w * 0.5, -s2 * W2 * 0.36);
+      limbT(c, B0[0],B0[1], B1[0],B1[1], W2 * 0.4, W2 * 0.35, tone.bnc);
     }
-    band(c, F, a - 4, 2, h, col(P.trimMid));                 /* wrist cuff */
+    /* Four fingers curled over the leading face, each its own tube with a
+       seam between. This is the detail the old square blob had no room for and
+       the reason every attack read as a fighter waving a stump. */
+    for (let k = 0; k < 4; k++){
+      const off = (k - 1.5) * W2 / 4;
+      const A = F.at(a - 0.25, off), B = F.at(a + w * 0.5, off);
+      limbT(c, A[0],A[1], B[0],B[1], W2 / 4 + 0.5, W2 / 4 + 0.25, tone.dk);
+      const A2 = F.at(a - 0.25, off + s2 * 0.25), B2 = F.at(a + w * 0.44, off + s2 * 0.25);
+      limbT(c, A2[0],A2[1], B2[0],B2[1], W2 / 4 - 0.25, W2 / 4 - 0.5, tone.mid);
+      if (!flash && k >= 2){
+        const K = F.at(a + w * 0.36, off + s2 * 0.5);
+        limbT(c, K[0],K[1], K[0],K[1], 0.75, 0.75, tone.lit);   /* knuckle */
+      }
+    }
+    /* thumb, wrapped across the front on the light side */
+    const T0 = F.at(a - 1.25, s2 * (W2 / 2)), T1 = F.at(a + w * 0.28, s2 * (W2 / 4));
+    limbT(c, T0[0],T0[1], T1[0],T1[1], 2, 1.5, tone.dk);
+    const T2 = F.at(a - 1, s2 * (W2 / 2 - 0.25));
+    limbT(c, T2[0],T2[1], T1[0],T1[1], 1.25, 1, tone.mid);
+    if (!flash) limbT(c, T2[0],T2[1], T2[0],T2[1], 0.75, 0.75, tone.lit);
+    band(c, F, a - 3, 1, (W2 >> 1) + 1, tone.dk);               /* wrist crease */
+    band(c, F, a - 4.5, 1.5, (W2 >> 1) + 1, col(P.trimMid));    /* cuff */
   };
 
   /* A boot in the foot's own frame: sole, upper, toe cap, ankle cuff. */
@@ -452,25 +486,75 @@ function buildSprite(ch, pose, facing, tint){
     c.fillRect(x, hy + r, w, 1);
   }
   if (!flash){
-    for (let r = 2; r <= hh - 4; r++){                       /* the lit plane */
-      c.fillStyle = P.skinLit; c.fillRect(fx(r, 1, 3), hy + r, 3, 1);
+    /* The face, in quarter-unit steps — one hardware pixel at this density.
+       The head is 56 by 60 real pixels, and until now four of them were the
+       eye. Everything below is drawn in the head's own frame so it mirrors
+       with the facing without a second set of numbers. */
+    const dr = (x, y, w, h, color) => {
+      c.fillStyle = color;
+      c.fillRect(snap(x), snap(y), snap(w), snap(h));
+    };
+    /* `back` counts in from the face; negative protrudes past the profile. */
+    const F_ = (r, back, wid) => {
+      const [x, w] = headRow(clamp(Math.round(r), 0, hh - 1));
+      return facing > 0 ? x + w - back - wid : x + back;
+    };
+    const B_ = (r, off, wid) => {
+      const [x, w] = headRow(clamp(Math.round(r), 0, hh - 1));
+      return facing > 0 ? x + off : x + w - off - wid;
+    };
+
+    /* form: the lit plane of the face, the shaded back of the skull, and the
+       warm band where one turns into the other */
+    for (let r = 2; r <= hh - 4; r++){
+      dr(F_(r, 0.75, 2.75), hy + r, 2.75, 1, P.skinLit);
     }
-    for (let r = 1; r <= hh - 3; r++){                       /* back of the skull */
-      c.fillStyle = P.skinDk;  c.fillRect(bx(r, 0, 2), hy + r, 2, 1);
-    }
-    c.fillStyle = P.skinDk;                                  /* brow and socket */
-    c.fillRect(fx(6, 0, 6), hy + 6, 6, 1);
-    c.fillRect(fx(7, 0, 5), hy + 7, 5, 1);
-    c.fillStyle = P.skinHi;  c.fillRect(fx(7, 1, 3), hy + 7, 3, 2);   /* eye */
-    c.fillStyle = P.line;    c.fillRect(fx(7, 1, 2), hy + 7, 2, 2);   /* pupil */
-    c.fillStyle = P.skinLit; c.fillRect(fx(8, -1, 2), hy + 8, 2, 1);  /* nose */
-    c.fillStyle = P.skinHi;  c.fillRect(fx(8, -1, 1), hy + 8, 1, 1);
-    c.fillStyle = P.skinDk;  c.fillRect(fx(9, -1, 2), hy + 9, 2, 1);
-    c.fillStyle = P.skinDk;  c.fillRect(fx(11, 2, 3), hy + 11, 3, 1); /* mouth */
-    const [jxx, jww] = headRow(hh - 2);                      /* jaw */
-    c.fillStyle = P.skinDk;  c.fillRect(jxx + 1, hy + hh - 2, jww - 2, 1);
-    c.fillStyle = P.skinDk;  c.fillRect(bx(8, 0, 2), hy + 7, 2, 3);   /* ear */
-    c.fillStyle = P.skinMid; c.fillRect(bx(8, 0, 1), hy + 8, 1, 1);
+    for (let r = 1; r <= hh - 3; r++) dr(B_(r, 0, 2), hy + r, 2, 1, P.skinDk);
+    for (let r = 3; r <= hh - 5; r++) dr(B_(r, 2, 1), hy + r, 1, 1, P.skinSh);
+    dr(F_(3, 0.75, 2.5), hy + 2.5, 2.5, 1, P.skinHi);         /* forehead */
+    for (let r = 9; r <= hh - 3; r++)                         /* jaw terminator */
+      dr(F_(r, 3.25, 1.25), hy + r, 1.25, 1, P.skinSSS);
+
+    /* brow ridge, and the socket it casts into */
+    dr(F_(6, 0.25, 4.5), hy + 5.75, 4.5, 0.5, P.skinSh);
+    dr(F_(6, 0.5, 3.75), hy + 6.25, 3.75, 0.25, P.skinDk);
+    dr(F_(5, 0.5, 3.25), hy + 5.25, 3.25, 0.5, P.hairMid);    /* eyebrow */
+    dr(F_(5, 2.5, 1.25), hy + 5, 1.25, 0.5, P.hairMid);
+
+    /* the eye: lid, white, iris, pupil, catchlight, lower lid */
+    dr(F_(7, 1.25, 2.75), hy + 6.75, 2.75, 1.25, P.skinAO);
+    dr(F_(7, 1.5, 2.25), hy + 7, 2.25, 0.75, P.skinHi);
+    dr(F_(7, 1.5, 1.25), hy + 7, 1.25, 0.75, P.eyeMid || P.trimDk);
+    dr(F_(7, 1.75, 0.5), hy + 7.25, 0.5, 0.5, P.line);
+    dr(F_(7, 2.25, 0.25), hy + 7, 0.25, 0.25, P.skinSpec);
+    dr(F_(8, 1.5, 2.25), hy + 7.75, 2.25, 0.25, P.skinLit);
+
+    /* nose: bridge, tip stepping off the profile, nostril, and the shadow it
+       throws onto the lip */
+    dr(F_(7, 0.25, 0.5), hy + 7, 0.5, 1, P.skinLit);
+    dr(F_(8, -0.25, 0.75), hy + 8, 0.75, 0.75, P.skinLit);
+    dr(F_(8, -0.25, 0.5), hy + 8, 0.5, 0.25, P.skinHi);
+    dr(F_(9, 0, 0.75), hy + 8.75, 0.75, 0.5, P.skinSh);
+    dr(F_(9, 0.5, 0.5), hy + 8.75, 0.5, 0.25, P.skinAO);      /* nostril */
+    dr(F_(9, 0, 1.75), hy + 9.25, 1.75, 0.25, P.skinSh);
+
+    /* mouth: the line, an upper lip in shadow, a lit lower lip */
+    dr(F_(11, 0.75, 2.25), hy + 10.75, 2.25, 0.25, P.skinSh);
+    dr(F_(11, 0.75, 2), hy + 11, 2, 0.25, P.skinAO);
+    dr(F_(11, 1, 1.75), hy + 11.25, 1.75, 0.25, P.skinLit);
+
+    /* cheek and jaw */
+    dr(F_(10, 1.25, 1.5), hy + 9.75, 1.5, 0.75, P.skinHi);
+    const [jxx, jww] = headRow(hh - 2);
+    dr(jxx + 0.5, hy + hh - 2, jww - 1, 0.75, P.skinSh);
+    dr(F_(12, 1, 1.75), hy + 12, 1.75, 0.5, P.skinLit);       /* chin */
+    dr(jxx + 0.5, hy + hh - 1.25, jww - 1, 0.5, P.skinAO);
+
+    /* ear: helix, bowl, and the canal in shadow */
+    dr(B_(8, -0.25, 1.75), hy + 6.75, 1.75, 3, P.skinSh);
+    dr(B_(8, 0.25, 1.25), hy + 7, 1.25, 2.5, P.skinMid);
+    dr(B_(8, 0.75, 0.75), hy + 7.5, 0.75, 1.5, P.skinDk);
+    dr(B_(8, 0, 0.5), hy + 6.75, 0.5, 0.5, P.skinLit);
   }
   /* beard first, so the hat and hair sit over it */
   if (G.beard && !flash){

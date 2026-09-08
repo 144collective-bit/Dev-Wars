@@ -61,8 +61,18 @@ function parseHex(h){
   if (h.length === 4) h = "#" + h[1] + h[1] + h[2] + h[2] + h[3] + h[3];
   return [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
 }
-/* Snap any colour onto the console's palette. */
-function md(h){ const [r,g,b] = parseHex(h); return mdRGB(r, g, b); }
+function rgbHex(r, g, b){
+  const q = v => hex2(clamp(Math.round(v), 0, 255));
+  return "#" + q(r) + q(g) + q(b);
+}
+/* Snap a colour onto the Mega Drive's 512, for anything that wants that look
+   on purpose. It is no longer applied to everything: the nine-bit palette is
+   most of why a sprite reads as 1992, and it is also a hard ceiling on form —
+   there is no room in eight levels per channel for occlusion in a crease, warm
+   subsurface at a terminator, or bounce light off the floor, which is most of
+   what separates modern pixel art from the era it is quoting. */
+function mdSnap(h){ const [r,g,b] = parseHex(h); return mdRGB(r, g, b); }
+function md(h){ const [r,g,b] = parseHex(h); return rgbHex(r, g, b); }
 
 /* Lighter and darker versions of a colour.
 
@@ -110,7 +120,7 @@ function tone(hex, amt){
     s = Math.min(1, s * (1 + a * 0.55) + a * 0.10);
     h = towards(h, 250, a * 0.26);           /* shadows drift cool */
   }
-  return mdRGB(...hsv2rgb(h, s, v));
+  return rgbHex(...hsv2rgb(h, s, v));
 }
 
 /* Five tones per material: the most a 16-colour palette can spend on one
@@ -123,56 +133,40 @@ function tone(hex, amt){
    The tones are then nudged apart until all five survive the quantiser as
    different colours, which the loop below guarantees rather than assumes. */
 function ramp(hex){
-  let [h, s0, v0] = rgb2hsv(...parseHex(hex));
-  const v = clamp(v0, 0.32, 0.76);
-  const lo = Math.max(0.08, v * 0.34);
-  const hi = Math.min(1, v + (1 - v) * 0.66);
-  const at = (val, warm) => {
-    const t = (val - v) / (val >= v ? Math.max(0.001, hi - v) : Math.max(0.001, v - lo));
-    /* Highlights lose only a little saturation. Draining it turns a saturated
-       red into peach, which then collides with skin — an outfit that reads as
-       bare arms. Bright and still coloured is what a lit surface looks like. */
-    const sat = val >= v ? s0 * (1 - t * 0.28) : Math.min(1, s0 * (1 + (-t) * 0.50) + (-t) * 0.09);
-    /* Highlights barely rotate. Sending a hue "towards warm" takes the short
-       way round the wheel, and for anything blue that route runs through
-       green — a blue tunic with a mint highlight. Desaturating and raising
-       the value is what actually reads as lit; the hue can stay put. */
-    const hue = val >= v ? towards(h, 45, t * 0.08) : towards(h, 250, (-t) * 0.28);
-    return mdRGB(...hsv2rgb(hue, clamp(sat, 0, 1), clamp(val, 0, 1)));
-  };
-  const targets = [lo, lo + (v - lo) * 0.52, v, v + (hi - v) * 0.48, hi];
-  const out = [];
-  for (let i = 0; i < 5; i++){
-    let val = targets[i], col = at(val, i > 2);
-    /* Walk it away from its neighbour until the quantiser tells them apart. */
-    for (let tries = 0; tries < 24 && i > 0 && col === out[i - 1]; tries++){
-      val = clamp(val + 0.035, 0, 1);
-      col = at(val, i > 2);
-    }
-    out.push(col);
-  }
-  /* A base that is already near white cannot be pushed up any further, so the
-     collision has to be resolved by pulling the tone below it down instead.
-     Running both directions is what makes white hair shadeable at all. */
-  for (let i = 4; i > 0; i--){
-    let val = targets[i - 1];
-    for (let tries = 0; tries < 24 && out[i] === out[i - 1]; tries++){
-      val = clamp(val - 0.035, 0, 1);
-      out[i - 1] = at(val, i - 1 > 2);
-    }
-  }
+  const [h, s0, v0] = rgb2hsv(...parseHex(hex));
+  /* A base at either extreme has nowhere to go, so it is pulled toward the
+     middle first — exactly as an artist picks light grey rather than white for
+     hair they intend to shade. */
+  const v = clamp(v0, 0.22, 0.86);
+  const mk = (val, sat, hue) => rgbHex(...hsv2rgb(hue, clamp(sat, 0, 1), clamp(val, 0, 1)));
   return {
-    dk: out[0], sh: out[1], mid: out[2], lit: out[3], hi: out[4],
+    /* Occlusion, for creases: where light cannot reach, it is not just darker,
+       it is bluer and flatter, because what little arrives is skylight. */
+    ao:   mk(v * 0.24, s0 * 0.80 + 0.08, towards(h, 250, 0.42)),
+    dk:   mk(v * 0.40, s0 * 1.05 + 0.05, towards(h, 250, 0.28)),
+    sh:   mk(v * 0.62, s0 * 1.10,        towards(h, 250, 0.13)),
+    /* The terminator. Light that enters a surface and scatters back out leaves
+       a warm, saturated band exactly where the lit side turns away — on skin it
+       is the single strongest cue that a thing is alive rather than painted,
+       and it is the tone an eight-level palette can never afford. */
+    sss:  mk(v * 0.84, Math.min(1, s0 * 1.40 + 0.10), towards(h, 16, 0.34)),
+    mid:  mk(v, s0, h),
+    lit:  mk(v + (1 - v) * 0.28, s0 * 0.90, towards(h, 45, 0.05)),
+    hi:   mk(v + (1 - v) * 0.55, s0 * 0.68, towards(h, 45, 0.11)),
+    /* A small, nearly colourless specular sitting on top of the highlight. */
+    spec: mk(v + (1 - v) * 0.66, s0 * 0.44, towards(h, 48, 0.12)),
+    /* Light thrown back up off the floor, onto downward-facing surfaces. */
+    bnc:  mk(v * 0.50, s0 * 0.62, towards(h, 205, 0.16)),
     /* A cool rim along the unlit edge: what separates a sprite from the
-       background without an outline heavy enough to look like a sticker. */
-    /* Dim on purpose. A rim is a hint that the figure has a far side, not a
-       neon outline — at full brightness it reads as a glow effect and fights
-       the silhouette it is supposed to support. */
-    rim: mdRGB(...hsv2rgb(towards(h, 212, 0.60), Math.min(1, s0 * 0.42 + 0.10),
-                          clamp(v * 0.42 + 0.16, 0, 0.62)))
+       background without an outline heavy enough to look like a sticker. Dim
+       on purpose — at full brightness it reads as a glow and fights the
+       silhouette it is supposed to support. */
+    rim:  mk(clamp(v * 0.46 + 0.12, 0, 0.62), Math.min(0.55, s0 * 0.30 + 0.06),
+             towards(h, 210, 0.30))
   };
 }
-/* True when all five body tones snapped to different colours. */
+/* True when the body tones are all distinct. Trivial in full colour; kept
+   because it is the assertion that caught ramp collisions when they were not. */
 function rampIsDistinct(r){
   const v = [r.hi, r.lit, r.mid, r.sh, r.dk];
   return new Set(v).size === v.length;
@@ -220,15 +214,16 @@ function ditherGradient(ctx, x, y, w, h, top, bottom, steps){
    Every colour is still snapped to the console's 512. That is what holds the
    art together across characters and stages, and it costs nothing.
 
-   The hard sixteen-per-sprite limit is not kept. It capped the ceiling rather
-   than creating the look: sixteen colours cannot carry a hoodie, jeans, a
-   beard, a hat, slippers and a spoon, and the art this is aiming at is modern
-   pixel work rather than something a 1992 console had to fit in VRAM.
+   The hardware limits are gone, both of them. Sixteen colours per sprite could
+   not carry a hoodie, jeans, a beard, a hat, slippers and a spoon; and the
+   nine-bit palette underneath it had no room for occlusion in a crease, warm
+   subsurface at a terminator, or bounce light off the floor. Those three tones
+   are most of what separates modern pixel art from the era it quotes.
 
    A budget still exists, generously, so that colours are spent deliberately
    instead of accumulating. A fighter drifting past it means some material
    wants sharing, not that the limit wants raising. Asserted in the tests. */
-const PALETTE_BUDGET = 24;
+const PALETTE_BUDGET = 72;
 const OUTLINE = "#14141f";
 
 /* Core materials every fighter has, plus any extras it declares. An extra
@@ -240,22 +235,29 @@ function characterPalette(pal, extras){
   const out = {
     /* outline, doubling as the eye */
     line:    md(OUTLINE),
-    skinDk:  skin.sh,  skinMid: skin.mid, skinLit: skin.lit, skinHi:  skin.hi,
+    /* Skin gets the full ladder, because a face is where every one of these
+       tones is doing visible work. */
+    skinAO:  skin.ao,  skinDk:  skin.dk,  skinSh:  skin.sh,
+    skinSSS: skin.sss, skinMid: skin.mid, skinLit: skin.lit,
+    skinHi:  skin.hi,  skinSpec: skin.spec, skinBnc: skin.bnc,
     /* the outfit carries most of the form, so it gets the longest ramp */
-    suitDk:  suit.dk,  suitSh:  suit.sh,  suitMid: suit.mid,
-    suitLit: suit.lit, suitHi:  suit.hi,
-    hairDk:  hair.dk,  hairMid: hair.mid, hairLit: hair.lit,
+    suitAO:  suit.ao,  suitDk:  suit.dk,  suitSh:  suit.sh,
+    suitMid: suit.mid, suitLit: suit.lit, suitHi:  suit.hi,
+    suitSpec: suit.spec, suitBnc: suit.bnc,
+    hairDk:  hair.ao,  hairSh:  hair.dk,  hairMid: hair.mid,
+    hairLit: hair.lit, hairHi:  hair.hi,
     /* boots, gloves, belt */
-    trimMid: trim.mid, trimLit: trim.lit,
+    trimDk:  trim.dk,  trimMid: trim.mid, trimLit: trim.lit, trimHi: trim.hi,
     /* the cool rim that lifts the silhouette off the background */
     rim:     suit.rim
   };
   for (const name in (extras || {})){
     const spec = extras[name], r = ramp(spec.hex), n = spec.tones || 2;
     out[name + "Mid"] = r.mid;
-    if (n >= 2) out[name + "Lit"] = r.lit;
-    if (n >= 3) out[name + "Dk"]  = r.sh;
-    if (n >= 4) out[name + "Hi"]  = r.hi;
+    out[name + "Lit"] = r.lit;
+    out[name + "Dk"]  = r.sh;
+    if (n >= 3) out[name + "AO"] = r.ao;
+    if (n >= 3) out[name + "Hi"] = r.hi;
   }
   return out;
 }
