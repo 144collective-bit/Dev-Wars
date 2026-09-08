@@ -7,7 +7,10 @@
 
 function newLayer(w, h){
   const cv = document.createElement("canvas");
-  cv.width = w; cv.height = h;
+  cv.width = w * RS; cv.height = h * RS;
+  const c = cv.getContext("2d");
+  c.setTransform(RS, 0, 0, RS, 0, 0);
+  c.imageSmoothingEnabled = false;
   return cv;
 }
 /* Banded vertical gradient — stepped on purpose, so it dithers like pixel art

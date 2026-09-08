@@ -20,7 +20,46 @@
    ========================================================================== */
 
 const SPRITE_W = 150, SPRITE_H = 130, SPRITE_OX = 75, SPRITE_OY = 112;
+
+/* Sprites are rasterised at RS density but everything below still draws in
+   world units, because the canvas carries a scale transform. That is what lets
+   the resolution change without touching a single coordinate: a feature that
+   wants to stay chunky keeps its whole-unit position, and a feature that wants
+   real detail simply uses fractions of a unit — 1/RS is one hardware pixel. */
+
+/* A pose only ever fills a fifth of the full sprite box, and at RS = 4 the
+   difference between storing the box and storing the figure is 1.25MB versus
+   about 300KB per frame. The bounds come from the joints rather than from
+   reading the pixels back, which would cost more than drawing them. */
+function poseBounds(pose, sc){
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (const k in pose){
+    const jx = pose[k][0] * sc, jy = pose[k][1] * sc;
+    if (jx < x0) x0 = jx; if (jx > x1) x1 = jx;
+    if (jy < y0) y0 = jy; if (jy > y1) y1 = jy;
+  }
+  /* Padding for limb thickness, boots, a weapon at arm's length, and the
+     tallest hat on the roster. */
+  return { x0: x0 - 20, x1: x1 + 20, y0: y0 - 30, y1: y1 + 12 };
+}
+
+/* An LRU, because at this density the whole roster's worth of frames does not
+   fit in memory. Sized in bytes rather than entries so a big pose and a small
+   one cost what they actually cost. */
+const SPRITE_BUDGET = 48 * 1024 * 1024;
 const spriteCache = new Map();
+let spriteBytes = 0;
+function cachePut(key, cv){
+  const bytes = cv.width * cv.height * 4;
+  spriteCache.set(key, cv);
+  spriteBytes += bytes;
+  for (const k of spriteCache.keys()){
+    if (spriteBytes <= SPRITE_BUDGET) break;
+    const old = spriteCache.get(k);
+    spriteBytes -= old.width * old.height * 4;
+    spriteCache.delete(k);
+  }
+}
 
 /* A segment's own coordinate system: `a` runs along it from (x0,y0), `b` runs
    across it. Everything a limb wears is authored in these terms. */
@@ -62,7 +101,14 @@ function patch(ctx, F, a, b, la, lb, color){
    this size that difference is what reads as anatomy. */
 function limbT(ctx, x0, y0, x1, y1, t0, t1, color){
   const dx = x1 - x0, dy = y1 - y0;
-  const steps = Math.max(Math.abs(dx), Math.abs(dy), 1);
+  const span = Math.max(Math.abs(dx), Math.abs(dy), 1);
+  /* Stamping one square per unit of travel overdraws by roughly the limb's own
+     thickness, which is invisible at 1x and the dominant cost at 4x — the
+     squares are sixteen times the area but there are just as many of them. A
+     stamp every third of a thickness still overlaps on the diagonal (a step of
+     t/3 covers t*0.47 of gap at 45 degrees) and does a third of the work. */
+  const tmin = Math.max(1, Math.min(t0, t1));
+  const steps = Math.max(1, Math.ceil(span / Math.max(1, tmin / 3)));
   ctx.fillStyle = color;
   for (let i = 0; i <= steps; i++){
     const f = i / steps;
@@ -137,14 +183,24 @@ const SKULL = [0.60, 0.80, 0.92, 0.99, 1.00, 1.00, 1.00, 1.00,
                0.99, 0.96, 0.92, 0.85, 0.76, 0.62, 0.44];
 
 function buildSprite(ch, pose, facing, tint){
-  const cv = document.createElement("canvas");
-  cv.width = SPRITE_W; cv.height = SPRITE_H;
-  const c = cv.getContext("2d");
   const sc = ch.scale, b = ch.bulk, P = ch.p16;
+  const bd = poseBounds(pose, sc);
+  /* The drawing origin, in world units, relative to the figure's own origin
+     (the point between the feet). Mirrored with the facing. */
+  const ox = facing > 0 ? Math.floor(bd.x0) : -Math.ceil(bd.x1);
+  const oy = Math.floor(bd.y0);
+  const wUnits = Math.ceil(bd.x1 - bd.x0) + 2, hUnits = Math.ceil(bd.y1 - bd.y0) + 2;
+  const cv = document.createElement("canvas");
+  cv.width = wUnits * RS; cv.height = hUnits * RS;
+  cv.ox = ox; cv.oy = oy;
+  const c = cv.getContext("2d");
+  c.setTransform(RS, 0, 0, RS, 0, 0);
+  c.imageSmoothingEnabled = false;
+  const AX = -ox, AY = -oy;                 /* figure origin inside the canvas */
   const J = {};
   for (const k in pose){
-    J[k] = [ SPRITE_OX + facing * Math.round(pose[k][0] * sc),
-             SPRITE_OY + Math.round(pose[k][1] * sc) ];
+    J[k] = [ AX + facing * Math.round(pose[k][0] * sc),
+             AY + Math.round(pose[k][1] * sc) ];
   }
   const hipF = [ J.pv[0] + facing * 3, J.pv[1] + 1 ];
   const hipB = [ J.pv[0] - facing * 3, J.pv[1] + 1 ];
@@ -529,8 +585,30 @@ function poseKey(pose){
   return pose.__k;
 }
 function getSprite(ch, pose, facing, tint){
-  const key = ch.key + "|" + poseKey(pose) + "|" + facing + "|" + (tint||"");
+  /* The hit flash is the same silhouette filled white. Rasterising and caching
+     a second copy of every frame for it doubled the memory for something that
+     is one composite away from the frame we already have. */
+  if (tint === "flash"){
+    const base = getSprite(ch, pose, facing, null);
+    const key = "F|" + ch.key + "|" + poseKey(pose) + "|" + facing;
+    let f = spriteCache.get(key);
+    if (!f){
+      f = document.createElement("canvas");
+      f.width = base.width; f.height = base.height;
+      f.ox = base.ox; f.oy = base.oy;
+      const fc = f.getContext("2d");
+      fc.imageSmoothingEnabled = false;
+      fc.drawImage(base, 0, 0);
+      fc.globalCompositeOperation = "source-in";
+      fc.fillStyle = "#ffffff";
+      fc.fillRect(0, 0, f.width, f.height);
+      cachePut(key, f);
+    } else { spriteCache.delete(key); spriteCache.set(key, f); }
+    return f;
+  }
+  const key = ch.key + "|" + poseKey(pose) + "|" + facing;
   let s = spriteCache.get(key);
-  if (!s){ s = buildSprite(ch, pose, facing, tint); spriteCache.set(key, s); }
+  if (!s){ s = buildSprite(ch, pose, facing, tint); cachePut(key, s); }
+  else { spriteCache.delete(key); spriteCache.set(key, s); }   /* touch: LRU */
   return s;
 }

@@ -160,7 +160,7 @@
 </head>
 <body>
 <div id="wrap">
-  <canvas id="screen" width="384" height="216"></canvas>
+  <canvas id="screen" width="1536" height="864"></canvas>
   <div id="ui"></div>
   <div id="touch"></div>
 </div>
@@ -225,12 +225,24 @@ const ROOM_PREFIX  = "ironcircuit-v1-";  /* namespaces room codes on the broker 
    apart. Bump this on EVERY release: a mismatched pair is refused up front
    with a "refresh the page" message, which is a far cheaper failure than a
    match that silently desyncs halfway through. */
-const GAME_VERSION = "1.8.0";
+const GAME_VERSION = "1.9.0";
 const NET_DELAY    = 3;                  /* frames of input delay in online play */
 
 /* ---- Screen / world constants -------------------------------------------- */
 
-const W = 384, H = 216;          /* internal resolution, scaled up on display */
+const W = 384, H = 216;          /* the WORLD, in world units — never changes  */
+
+/* Render scale. The simulation, the poses, the hurtboxes and every stored
+   coordinate stay in world units, so none of this reaches the sim: RS only
+   decides how many real pixels each world unit is rasterised into. That is
+   what makes an upscale cheap here and ruinous on a hand-drawn game — the art
+   is generated, so asking for four times the pixels just means the generator
+   draws at a finer grid, and nothing has to be redrawn.
+
+   At RS = 4 the frame is 1536x864 and a fighter stands about 440px tall,
+   which is enough resolution for fingers, facial features and cloth. */
+const RS = 4;
+const RW = W * RS, RH = H * RS;
 const GROUND_Y   = 186;          /* y of the floor line, in screen pixels     */
 const STAGE_W    = 880;          /* playfield width in world pixels           */
 const FP         = 256;          /* fixed-point scale: 1px = 256 units        */
@@ -1533,7 +1545,46 @@ function drawTextShadow(ctx, str, x, y, color, shadow, sc=1, sp=1){
    ========================================================================== */
 
 const SPRITE_W = 150, SPRITE_H = 130, SPRITE_OX = 75, SPRITE_OY = 112;
+
+/* Sprites are rasterised at RS density but everything below still draws in
+   world units, because the canvas carries a scale transform. That is what lets
+   the resolution change without touching a single coordinate: a feature that
+   wants to stay chunky keeps its whole-unit position, and a feature that wants
+   real detail simply uses fractions of a unit — 1/RS is one hardware pixel. */
+
+/* A pose only ever fills a fifth of the full sprite box, and at RS = 4 the
+   difference between storing the box and storing the figure is 1.25MB versus
+   about 300KB per frame. The bounds come from the joints rather than from
+   reading the pixels back, which would cost more than drawing them. */
+function poseBounds(pose, sc){
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (const k in pose){
+    const jx = pose[k][0] * sc, jy = pose[k][1] * sc;
+    if (jx < x0) x0 = jx; if (jx > x1) x1 = jx;
+    if (jy < y0) y0 = jy; if (jy > y1) y1 = jy;
+  }
+  /* Padding for limb thickness, boots, a weapon at arm's length, and the
+     tallest hat on the roster. */
+  return { x0: x0 - 20, x1: x1 + 20, y0: y0 - 30, y1: y1 + 12 };
+}
+
+/* An LRU, because at this density the whole roster's worth of frames does not
+   fit in memory. Sized in bytes rather than entries so a big pose and a small
+   one cost what they actually cost. */
+const SPRITE_BUDGET = 48 * 1024 * 1024;
 const spriteCache = new Map();
+let spriteBytes = 0;
+function cachePut(key, cv){
+  const bytes = cv.width * cv.height * 4;
+  spriteCache.set(key, cv);
+  spriteBytes += bytes;
+  for (const k of spriteCache.keys()){
+    if (spriteBytes <= SPRITE_BUDGET) break;
+    const old = spriteCache.get(k);
+    spriteBytes -= old.width * old.height * 4;
+    spriteCache.delete(k);
+  }
+}
 
 /* A segment's own coordinate system: `a` runs along it from (x0,y0), `b` runs
    across it. Everything a limb wears is authored in these terms. */
@@ -1575,7 +1626,14 @@ function patch(ctx, F, a, b, la, lb, color){
    this size that difference is what reads as anatomy. */
 function limbT(ctx, x0, y0, x1, y1, t0, t1, color){
   const dx = x1 - x0, dy = y1 - y0;
-  const steps = Math.max(Math.abs(dx), Math.abs(dy), 1);
+  const span = Math.max(Math.abs(dx), Math.abs(dy), 1);
+  /* Stamping one square per unit of travel overdraws by roughly the limb's own
+     thickness, which is invisible at 1x and the dominant cost at 4x — the
+     squares are sixteen times the area but there are just as many of them. A
+     stamp every third of a thickness still overlaps on the diagonal (a step of
+     t/3 covers t*0.47 of gap at 45 degrees) and does a third of the work. */
+  const tmin = Math.max(1, Math.min(t0, t1));
+  const steps = Math.max(1, Math.ceil(span / Math.max(1, tmin / 3)));
   ctx.fillStyle = color;
   for (let i = 0; i <= steps; i++){
     const f = i / steps;
@@ -1650,14 +1708,24 @@ const SKULL = [0.60, 0.80, 0.92, 0.99, 1.00, 1.00, 1.00, 1.00,
                0.99, 0.96, 0.92, 0.85, 0.76, 0.62, 0.44];
 
 function buildSprite(ch, pose, facing, tint){
-  const cv = document.createElement("canvas");
-  cv.width = SPRITE_W; cv.height = SPRITE_H;
-  const c = cv.getContext("2d");
   const sc = ch.scale, b = ch.bulk, P = ch.p16;
+  const bd = poseBounds(pose, sc);
+  /* The drawing origin, in world units, relative to the figure's own origin
+     (the point between the feet). Mirrored with the facing. */
+  const ox = facing > 0 ? Math.floor(bd.x0) : -Math.ceil(bd.x1);
+  const oy = Math.floor(bd.y0);
+  const wUnits = Math.ceil(bd.x1 - bd.x0) + 2, hUnits = Math.ceil(bd.y1 - bd.y0) + 2;
+  const cv = document.createElement("canvas");
+  cv.width = wUnits * RS; cv.height = hUnits * RS;
+  cv.ox = ox; cv.oy = oy;
+  const c = cv.getContext("2d");
+  c.setTransform(RS, 0, 0, RS, 0, 0);
+  c.imageSmoothingEnabled = false;
+  const AX = -ox, AY = -oy;                 /* figure origin inside the canvas */
   const J = {};
   for (const k in pose){
-    J[k] = [ SPRITE_OX + facing * Math.round(pose[k][0] * sc),
-             SPRITE_OY + Math.round(pose[k][1] * sc) ];
+    J[k] = [ AX + facing * Math.round(pose[k][0] * sc),
+             AY + Math.round(pose[k][1] * sc) ];
   }
   const hipF = [ J.pv[0] + facing * 3, J.pv[1] + 1 ];
   const hipB = [ J.pv[0] - facing * 3, J.pv[1] + 1 ];
@@ -2042,9 +2110,31 @@ function poseKey(pose){
   return pose.__k;
 }
 function getSprite(ch, pose, facing, tint){
-  const key = ch.key + "|" + poseKey(pose) + "|" + facing + "|" + (tint||"");
+  /* The hit flash is the same silhouette filled white. Rasterising and caching
+     a second copy of every frame for it doubled the memory for something that
+     is one composite away from the frame we already have. */
+  if (tint === "flash"){
+    const base = getSprite(ch, pose, facing, null);
+    const key = "F|" + ch.key + "|" + poseKey(pose) + "|" + facing;
+    let f = spriteCache.get(key);
+    if (!f){
+      f = document.createElement("canvas");
+      f.width = base.width; f.height = base.height;
+      f.ox = base.ox; f.oy = base.oy;
+      const fc = f.getContext("2d");
+      fc.imageSmoothingEnabled = false;
+      fc.drawImage(base, 0, 0);
+      fc.globalCompositeOperation = "source-in";
+      fc.fillStyle = "#ffffff";
+      fc.fillRect(0, 0, f.width, f.height);
+      cachePut(key, f);
+    } else { spriteCache.delete(key); spriteCache.set(key, f); }
+    return f;
+  }
+  const key = ch.key + "|" + poseKey(pose) + "|" + facing;
   let s = spriteCache.get(key);
-  if (!s){ s = buildSprite(ch, pose, facing, tint); spriteCache.set(key, s); }
+  if (!s){ s = buildSprite(ch, pose, facing, tint); cachePut(key, s); }
+  else { spriteCache.delete(key); spriteCache.set(key, s); }   /* touch: LRU */
   return s;
 }
 
@@ -2057,7 +2147,10 @@ function getSprite(ch, pose, facing, tint){
 
 function newLayer(w, h){
   const cv = document.createElement("canvas");
-  cv.width = w; cv.height = h;
+  cv.width = w * RS; cv.height = h * RS;
+  const c = cv.getContext("2d");
+  c.setTransform(RS, 0, 0, RS, 0, 0);
+  c.imageSmoothingEnabled = false;
   return cv;
 }
 /* Banded vertical gradient — stepped on purpose, so it dithers like pixel art
@@ -3198,6 +3291,19 @@ const screen = document.getElementById("screen");
 const sctx = screen.getContext("2d");
 sctx.imageSmoothingEnabled = false;
 
+/* Everything below draws in world units. One transform turns those into real
+   pixels, so the renderer never has to think about RS and a change of scale
+   cannot leave half the frame behind. Assets that are BUILT at RS density —
+   sprites, stage layers — are blitted with an explicit world-unit size, which
+   lands them 1:1 on the pixel grid. */
+function worldTransform(ctx){
+  ctx.setTransform(RS, 0, 0, RS, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+}
+function blitRS(ctx, img, x, y){
+  ctx.drawImage(img, x, y, img.width / RS, img.height / RS);
+}
+
 /* Health bars lag behind real damage, so a big combo reads as one long
    drain rather than an instant jump. Purely presentational. */
 const hud = [ { trail:1, hp:1 }, { trail:1, hp:1 } ];
@@ -3273,18 +3379,18 @@ function drawFighter(ctx, f, camX, opp){
   const pose = f.pose();
   const tint = f.flash > 0 ? "flash" : null;
   const spr = getSprite(f.ch, pose, f.facing, tint);
-  const x = Math.round(f.px - camX) - SPRITE_OX;
-  const y = Math.round(GROUND_Y - f.py) - SPRITE_OY;
+  const x = Math.round(f.px - camX) + spr.ox;
+  const y = Math.round(GROUND_Y - f.py) + spr.oy;
   /* contact shadow, squashed by height off the floor */
   const alt = f.py;
   const sw = Math.max(10, Math.round(30 * f.scale - alt * 0.16));
   ctx.fillStyle = "rgba(0,0,0,.34)";
   ctx.fillRect(Math.round(f.px - camX) - (sw>>1), GROUND_Y - 2, sw, 4);
-  ctx.drawImage(spr, x, y);
+  blitRS(ctx, spr, x, y);
   /* super-meter-full aura */
   if (f.meter >= METER_MAX && f.state !== S.KNOCKDOWN){
     ctx.globalAlpha = 0.30 + 0.14 * Math.sin(f.animFrame * 0.3);
-    ctx.drawImage(getSprite(f.ch, pose, f.facing, "flash"), x, y - 1);
+    blitRS(ctx, getSprite(f.ch, pose, f.facing, "flash"), x, y - 1);
     ctx.globalAlpha = 1;
   }
   void opp;
@@ -3372,12 +3478,13 @@ function render(g){
   const shakeY = g.shake > 0 ? ((g.frame % 3) ? 1 : -1) * (g.shake >> 2) : 0;
   const camX = g.camX;
 
+  worldTransform(sctx);
   sctx.save();
   sctx.translate(shakeX, shakeY);
   sctx.fillStyle = "#05060f"; sctx.fillRect(-8, -8, W+16, H+16);
-  sctx.drawImage(st.far,  Math.round(-camX * 0.25), 0);
-  sctx.drawImage(st.near, Math.round(-camX * 0.55), 0);
-  sctx.drawImage(st.floor, Math.round(-camX), GROUND_Y - 2);
+  blitRS(sctx, st.far,  Math.round(-camX * 0.25), 0);
+  blitRS(sctx, st.near, Math.round(-camX * 0.55), 0);
+  blitRS(sctx, st.floor, Math.round(-camX), GROUND_Y - 2);
 
   drawStageProps(sctx, st, camX, g.frame);
 
@@ -3388,7 +3495,7 @@ function render(g){
 
   /* Foreground last and scrolled fastest: desks and monitors between the
      camera and the fight. */
-  if (st.fore) sctx.drawImage(st.fore, Math.round(-camX * 1.34), 0);
+  if (st.fore) blitRS(sctx, st.fore, Math.round(-camX * 1.34), 0);
 
   /* The HUD owns the top of the frame. Any stage detail that reaches into it
      competes with the health bars for the same pixels, and in a fight the bars
@@ -3924,11 +4031,14 @@ function charCardsHTML(selectedKey, label){
 function paintPortraits(){
   uiRoot.querySelectorAll("canvas[data-portrait]").forEach(cv => {
     const ch = CHAR_BY_KEY[cv.dataset.portrait];
-    const spr = getSprite(ch, POSE.idle1, 1, null);
+    const pose = (ch.poses && ch.poses.idle1) || POSE.idle1;
+    const spr = getSprite(ch, pose, 1, null);
     const c = cv.getContext("2d");
     c.imageSmoothingEnabled = false;
     c.clearRect(0, 0, cv.width, cv.height);
-    c.drawImage(spr, SPRITE_OX - 32, SPRITE_OY - 74, 64, 76, 0, 0, 64, 76);
+    /* source window, in the sprite's own pixels, around the figure's origin */
+    const sx = (-32 - spr.ox) * RS, sy = (-74 - spr.oy) * RS;
+    c.drawImage(spr, sx, sy, 64 * RS, 76 * RS, 0, 0, 64, 76);
   });
 }
 function charInfoHTML(key){
@@ -4382,6 +4492,7 @@ function fit(){
     : (s >= 1 ? Math.floor(s) : Math.max(0.4, Math.floor(s * 20) / 20));  /* stay crisp */
   screen.style.width  = Math.round(W * s) + "px";
   screen.style.height = Math.round(H * s) + "px";
+  screen.style.imageRendering = (W * s) >= RW ? "pixelated" : "auto";
 }
 
 /* ---- boot ----------------------------------------------------------------- */

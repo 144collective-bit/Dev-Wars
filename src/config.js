@@ -55,12 +55,24 @@ const ROOM_PREFIX  = "ironcircuit-v1-";  /* namespaces room codes on the broker 
    apart. Bump this on EVERY release: a mismatched pair is refused up front
    with a "refresh the page" message, which is a far cheaper failure than a
    match that silently desyncs halfway through. */
-const GAME_VERSION = "1.8.0";
+const GAME_VERSION = "1.9.0";
 const NET_DELAY    = 3;                  /* frames of input delay in online play */
 
 /* ---- Screen / world constants -------------------------------------------- */
 
-const W = 384, H = 216;          /* internal resolution, scaled up on display */
+const W = 384, H = 216;          /* the WORLD, in world units — never changes  */
+
+/* Render scale. The simulation, the poses, the hurtboxes and every stored
+   coordinate stay in world units, so none of this reaches the sim: RS only
+   decides how many real pixels each world unit is rasterised into. That is
+   what makes an upscale cheap here and ruinous on a hand-drawn game — the art
+   is generated, so asking for four times the pixels just means the generator
+   draws at a finer grid, and nothing has to be redrawn.
+
+   At RS = 4 the frame is 1536x864 and a fighter stands about 440px tall,
+   which is enough resolution for fingers, facial features and cloth. */
+const RS = 4;
+const RW = W * RS, RH = H * RS;
 const GROUND_Y   = 186;          /* y of the floor line, in screen pixels     */
 const STAGE_W    = 880;          /* playfield width in world pixels           */
 const FP         = 256;          /* fixed-point scale: 1px = 256 units        */

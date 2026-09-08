@@ -6,6 +6,19 @@ const screen = document.getElementById("screen");
 const sctx = screen.getContext("2d");
 sctx.imageSmoothingEnabled = false;
 
+/* Everything below draws in world units. One transform turns those into real
+   pixels, so the renderer never has to think about RS and a change of scale
+   cannot leave half the frame behind. Assets that are BUILT at RS density —
+   sprites, stage layers — are blitted with an explicit world-unit size, which
+   lands them 1:1 on the pixel grid. */
+function worldTransform(ctx){
+  ctx.setTransform(RS, 0, 0, RS, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+}
+function blitRS(ctx, img, x, y){
+  ctx.drawImage(img, x, y, img.width / RS, img.height / RS);
+}
+
 /* Health bars lag behind real damage, so a big combo reads as one long
    drain rather than an instant jump. Purely presentational. */
 const hud = [ { trail:1, hp:1 }, { trail:1, hp:1 } ];
@@ -81,18 +94,18 @@ function drawFighter(ctx, f, camX, opp){
   const pose = f.pose();
   const tint = f.flash > 0 ? "flash" : null;
   const spr = getSprite(f.ch, pose, f.facing, tint);
-  const x = Math.round(f.px - camX) - SPRITE_OX;
-  const y = Math.round(GROUND_Y - f.py) - SPRITE_OY;
+  const x = Math.round(f.px - camX) + spr.ox;
+  const y = Math.round(GROUND_Y - f.py) + spr.oy;
   /* contact shadow, squashed by height off the floor */
   const alt = f.py;
   const sw = Math.max(10, Math.round(30 * f.scale - alt * 0.16));
   ctx.fillStyle = "rgba(0,0,0,.34)";
   ctx.fillRect(Math.round(f.px - camX) - (sw>>1), GROUND_Y - 2, sw, 4);
-  ctx.drawImage(spr, x, y);
+  blitRS(ctx, spr, x, y);
   /* super-meter-full aura */
   if (f.meter >= METER_MAX && f.state !== S.KNOCKDOWN){
     ctx.globalAlpha = 0.30 + 0.14 * Math.sin(f.animFrame * 0.3);
-    ctx.drawImage(getSprite(f.ch, pose, f.facing, "flash"), x, y - 1);
+    blitRS(ctx, getSprite(f.ch, pose, f.facing, "flash"), x, y - 1);
     ctx.globalAlpha = 1;
   }
   void opp;
@@ -180,12 +193,13 @@ function render(g){
   const shakeY = g.shake > 0 ? ((g.frame % 3) ? 1 : -1) * (g.shake >> 2) : 0;
   const camX = g.camX;
 
+  worldTransform(sctx);
   sctx.save();
   sctx.translate(shakeX, shakeY);
   sctx.fillStyle = "#05060f"; sctx.fillRect(-8, -8, W+16, H+16);
-  sctx.drawImage(st.far,  Math.round(-camX * 0.25), 0);
-  sctx.drawImage(st.near, Math.round(-camX * 0.55), 0);
-  sctx.drawImage(st.floor, Math.round(-camX), GROUND_Y - 2);
+  blitRS(sctx, st.far,  Math.round(-camX * 0.25), 0);
+  blitRS(sctx, st.near, Math.round(-camX * 0.55), 0);
+  blitRS(sctx, st.floor, Math.round(-camX), GROUND_Y - 2);
 
   drawStageProps(sctx, st, camX, g.frame);
 
@@ -196,7 +210,7 @@ function render(g){
 
   /* Foreground last and scrolled fastest: desks and monitors between the
      camera and the fight. */
-  if (st.fore) sctx.drawImage(st.fore, Math.round(-camX * 1.34), 0);
+  if (st.fore) blitRS(sctx, st.fore, Math.round(-camX * 1.34), 0);
 
   /* The HUD owns the top of the frame. Any stage detail that reaches into it
      competes with the health bars for the same pixels, and in a fight the bars

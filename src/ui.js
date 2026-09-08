@@ -49,11 +49,14 @@ function charCardsHTML(selectedKey, label){
 function paintPortraits(){
   uiRoot.querySelectorAll("canvas[data-portrait]").forEach(cv => {
     const ch = CHAR_BY_KEY[cv.dataset.portrait];
-    const spr = getSprite(ch, POSE.idle1, 1, null);
+    const pose = (ch.poses && ch.poses.idle1) || POSE.idle1;
+    const spr = getSprite(ch, pose, 1, null);
     const c = cv.getContext("2d");
     c.imageSmoothingEnabled = false;
     c.clearRect(0, 0, cv.width, cv.height);
-    c.drawImage(spr, SPRITE_OX - 32, SPRITE_OY - 74, 64, 76, 0, 0, 64, 76);
+    /* source window, in the sprite's own pixels, around the figure's origin */
+    const sx = (-32 - spr.ox) * RS, sy = (-74 - spr.oy) * RS;
+    c.drawImage(spr, sx, sy, 64 * RS, 76 * RS, 0, 0, 64, 76);
   });
 }
 function charInfoHTML(key){
@@ -507,6 +510,7 @@ function fit(){
     : (s >= 1 ? Math.floor(s) : Math.max(0.4, Math.floor(s * 20) / 20));  /* stay crisp */
   screen.style.width  = Math.round(W * s) + "px";
   screen.style.height = Math.round(H * s) + "px";
+  screen.style.imageRendering = (W * s) >= RW ? "pixelated" : "auto";
 }
 
 /* ---- boot ----------------------------------------------------------------- */
