@@ -193,6 +193,106 @@ const POSE = {
 /* Each pose carries its own name so the hurtbox table can key off it. The
    property is non-enumerable on purpose: the sprite rasteriser walks a pose
    with for...in expecting nothing but joints. */
+/* --- in-betweens -----------------------------------------------------------
+   A pose between two others. A t outside 0..1 extrapolates, which is how a
+   smear and a follow-through are made: the limb carries past the pose it was
+   travelling toward, then comes back.
+
+   These are registered in POSE like any hand-authored pose, so the hurtbox
+   baker treats them the same. That matters — an in-between is a real frame of
+   the fight, not a decoration, and a fighter halfway through a recovery should
+   not be presenting the hurtbox of the frame he threw the punch on. */
+function tweenPose(a, b, t){
+  const o = {};
+  for (const k in BASE){
+    const pa = a[k] || BASE[k], pb = b[k] || BASE[k];
+    o[k] = [ Math.round(pa[0] + (pb[0] - pa[0]) * t),
+             Math.round(pa[1] + (pb[1] - pa[1]) * t) ];
+  }
+  return o;
+}
+const TWEENS = {
+  /* punches: coil, smear past the target, follow through, settle */
+  jabCoil:    [POSE.idle1,      POSE.jabStart,   0.55],
+  jabSmear:   [POSE.jabStart,   POSE.jab,        1.20],
+  jabFollow:  [POSE.jab,        POSE.jabStart,   0.34],
+  jabSettle:  [POSE.jabStart,   POSE.idle1,      0.55],
+  strCoil:    [POSE.idle1,      POSE.jabStart,   0.75],
+  strSmear:   [POSE.jabStart,   POSE.straight,   1.16],
+  strFollow:  [POSE.straight,   POSE.jab,        0.40],
+  strSettle:  [POSE.jab,        POSE.idle1,      0.55],
+  fceCoilA:   [POSE.idle1,      POSE.fierceWind, 0.55],
+  fceCoilB:   [POSE.fierceWind, POSE.fierce,     0.30],
+  fceSmear:   [POSE.fierceWind, POSE.fierce,     1.14],
+  fceFollow:  [POSE.fierce,     POSE.straight,   0.45],
+  fceSettle:  [POSE.straight,   POSE.idle1,      0.50],
+  /* kicks */
+  kckCoil:    [POSE.idle1,      POSE.shortStart, 0.60],
+  kckSmear:   [POSE.shortStart, POSE.shortKick,  1.18],
+  kckFollow:  [POSE.shortKick,  POSE.shortStart, 0.38],
+  kckSettle:  [POSE.shortStart, POSE.idle1,      0.55],
+  midSmear:   [POSE.shortStart, POSE.midKick,    1.14],
+  midFollow:  [POSE.midKick,    POSE.shortKick,  0.42],
+  hiCoil:     [POSE.shortStart, POSE.highKick,   0.28],
+  hiSmear:    [POSE.shortStart, POSE.highKick,   1.12],
+  hiFollow:   [POSE.highKick,   POSE.midKick,    0.45],
+  hiSettle:   [POSE.midKick,    POSE.idle1,      0.50],
+  /* crouching */
+  crCoil:     [POSE.crouch,     POSE.crJab,      0.45],
+  crJabSmear: [POSE.crouch,     POSE.crJab,      1.16],
+  crJabBack:  [POSE.crJab,      POSE.crouch,     0.45],
+  crStrSmear: [POSE.crouch,     POSE.crStrong,   1.14],
+  crStrBack:  [POSE.crStrong,   POSE.crouch,     0.40],
+  crFceSmear: [POSE.crouch,     POSE.crFierce,   1.12],
+  crFceBack:  [POSE.crFierce,   POSE.crouch,     0.38],
+  crKckSmear: [POSE.crouch,     POSE.crShort,    1.16],
+  crKckBack:  [POSE.crShort,    POSE.crouch,     0.42],
+  crMidSmear: [POSE.crouch,     POSE.crMid,      1.14],
+  crMidBack:  [POSE.crMid,      POSE.crouch,     0.40],
+  swpCoil:    [POSE.crouch,     POSE.sweepWind,  0.60],
+  swpSmear:   [POSE.sweepWind,  POSE.sweep,      1.12],
+  swpFollow:  [POSE.sweep,      POSE.sweepWind,  0.40],
+  /* air */
+  airJabSm:   [POSE.jumpBall,   POSE.airJab,     1.14],
+  airJabBk:   [POSE.airJab,     POSE.jumpBall,   0.42],
+  airFceSm:   [POSE.jumpBall,   POSE.airFierce,  1.12],
+  airFceBk:   [POSE.airFierce,  POSE.jumpBall,   0.40],
+  airShtSm:   [POSE.jumpBall,   POSE.airShort,   1.14],
+  airShtBk:   [POSE.airShort,   POSE.jumpBall,   0.42],
+  airHvySm:   [POSE.jumpBall,   POSE.airHeavy,   1.12],
+  airHvyBk:   [POSE.airHeavy,   POSE.jumpBall,   0.40],
+  /* specials */
+  boltCoil:   [POSE.idle1,      POSE.boltWind,   0.55],
+  boltPush:   [POSE.boltWind,   POSE.boltFire,   0.42],
+  boltFollow: [POSE.boltFire,   POSE.boltWind,   0.30],
+  boltSettle: [POSE.boltWind,   POSE.idle1,      0.55],
+  riseCoil:   [POSE.idle1,      POSE.riseWind,   0.60],
+  riseSmear:  [POSE.riseWind,   POSE.rise,       1.12],
+  riseFall:   [POSE.rise,       POSE.riseWind,   0.45],
+  lanceCoil:  [POSE.idle1,      POSE.lance,      0.45],
+  lanceSmear: [POSE.idle1,      POSE.lance,      1.12],
+  lanceBack:  [POSE.lance,      POSE.idle1,      0.38],
+  fangCoil:   [POSE.jumpBall,   POSE.fang,       0.45],
+  fangSmear:  [POSE.jumpBall,   POSE.fang,       1.12],
+  fangBack:   [POSE.fang,       POSE.jumpBall,   0.40],
+  grabPull:   [POSE.grabReach,  POSE.grabHold,   0.50],
+  superRise:  [POSE.superHold,  POSE.idle1,      0.40],
+  /* The last beat back to guard. A recovery that holds one drawing for its
+     final nine frames reads as a freeze, however good the drawing is. */
+  jabSettle2: [POSE.jabStart,   POSE.idle1,      0.82],
+  strSettle2: [POSE.jab,        POSE.idle1,      0.82],
+  fceSettle2: [POSE.straight,   POSE.idle1,      0.80],
+  kckSettle2: [POSE.shortStart, POSE.idle1,      0.82],
+  midSettle2: [POSE.shortKick,  POSE.idle1,      0.80],
+  hiSettle2:  [POSE.midKick,    POSE.idle1,      0.80],
+  crSettle:   [POSE.crouch,     POSE.crJab,      0.18],
+  boltSet2:   [POSE.boltWind,   POSE.idle1,      0.80]
+};
+for (const n in TWEENS){
+  const [a, b, t] = TWEENS[n];
+  POSE[n] = tweenPose(a, b, t);
+}
+
 for (const name in POSE) Object.defineProperty(POSE[name], "$name", { value: name });
 
 /* Animations shared by every fighter. Per-character frame data (startup,

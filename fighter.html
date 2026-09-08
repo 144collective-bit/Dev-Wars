@@ -225,7 +225,7 @@ const ROOM_PREFIX  = "ironcircuit-v1-";  /* namespaces room codes on the broker 
    apart. Bump this on EVERY release: a mismatched pair is refused up front
    with a "refresh the page" message, which is a far cheaper failure than a
    match that silently desyncs halfway through. */
-const GAME_VERSION = "2.1.0";
+const GAME_VERSION = "2.2.0";
 const NET_DELAY    = 3;                  /* frames of input delay in online play */
 
 /* ---- Screen / world constants -------------------------------------------- */
@@ -1081,6 +1081,106 @@ const POSE = {
 /* Each pose carries its own name so the hurtbox table can key off it. The
    property is non-enumerable on purpose: the sprite rasteriser walks a pose
    with for...in expecting nothing but joints. */
+/* --- in-betweens -----------------------------------------------------------
+   A pose between two others. A t outside 0..1 extrapolates, which is how a
+   smear and a follow-through are made: the limb carries past the pose it was
+   travelling toward, then comes back.
+
+   These are registered in POSE like any hand-authored pose, so the hurtbox
+   baker treats them the same. That matters — an in-between is a real frame of
+   the fight, not a decoration, and a fighter halfway through a recovery should
+   not be presenting the hurtbox of the frame he threw the punch on. */
+function tweenPose(a, b, t){
+  const o = {};
+  for (const k in BASE){
+    const pa = a[k] || BASE[k], pb = b[k] || BASE[k];
+    o[k] = [ Math.round(pa[0] + (pb[0] - pa[0]) * t),
+             Math.round(pa[1] + (pb[1] - pa[1]) * t) ];
+  }
+  return o;
+}
+const TWEENS = {
+  /* punches: coil, smear past the target, follow through, settle */
+  jabCoil:    [POSE.idle1,      POSE.jabStart,   0.55],
+  jabSmear:   [POSE.jabStart,   POSE.jab,        1.20],
+  jabFollow:  [POSE.jab,        POSE.jabStart,   0.34],
+  jabSettle:  [POSE.jabStart,   POSE.idle1,      0.55],
+  strCoil:    [POSE.idle1,      POSE.jabStart,   0.75],
+  strSmear:   [POSE.jabStart,   POSE.straight,   1.16],
+  strFollow:  [POSE.straight,   POSE.jab,        0.40],
+  strSettle:  [POSE.jab,        POSE.idle1,      0.55],
+  fceCoilA:   [POSE.idle1,      POSE.fierceWind, 0.55],
+  fceCoilB:   [POSE.fierceWind, POSE.fierce,     0.30],
+  fceSmear:   [POSE.fierceWind, POSE.fierce,     1.14],
+  fceFollow:  [POSE.fierce,     POSE.straight,   0.45],
+  fceSettle:  [POSE.straight,   POSE.idle1,      0.50],
+  /* kicks */
+  kckCoil:    [POSE.idle1,      POSE.shortStart, 0.60],
+  kckSmear:   [POSE.shortStart, POSE.shortKick,  1.18],
+  kckFollow:  [POSE.shortKick,  POSE.shortStart, 0.38],
+  kckSettle:  [POSE.shortStart, POSE.idle1,      0.55],
+  midSmear:   [POSE.shortStart, POSE.midKick,    1.14],
+  midFollow:  [POSE.midKick,    POSE.shortKick,  0.42],
+  hiCoil:     [POSE.shortStart, POSE.highKick,   0.28],
+  hiSmear:    [POSE.shortStart, POSE.highKick,   1.12],
+  hiFollow:   [POSE.highKick,   POSE.midKick,    0.45],
+  hiSettle:   [POSE.midKick,    POSE.idle1,      0.50],
+  /* crouching */
+  crCoil:     [POSE.crouch,     POSE.crJab,      0.45],
+  crJabSmear: [POSE.crouch,     POSE.crJab,      1.16],
+  crJabBack:  [POSE.crJab,      POSE.crouch,     0.45],
+  crStrSmear: [POSE.crouch,     POSE.crStrong,   1.14],
+  crStrBack:  [POSE.crStrong,   POSE.crouch,     0.40],
+  crFceSmear: [POSE.crouch,     POSE.crFierce,   1.12],
+  crFceBack:  [POSE.crFierce,   POSE.crouch,     0.38],
+  crKckSmear: [POSE.crouch,     POSE.crShort,    1.16],
+  crKckBack:  [POSE.crShort,    POSE.crouch,     0.42],
+  crMidSmear: [POSE.crouch,     POSE.crMid,      1.14],
+  crMidBack:  [POSE.crMid,      POSE.crouch,     0.40],
+  swpCoil:    [POSE.crouch,     POSE.sweepWind,  0.60],
+  swpSmear:   [POSE.sweepWind,  POSE.sweep,      1.12],
+  swpFollow:  [POSE.sweep,      POSE.sweepWind,  0.40],
+  /* air */
+  airJabSm:   [POSE.jumpBall,   POSE.airJab,     1.14],
+  airJabBk:   [POSE.airJab,     POSE.jumpBall,   0.42],
+  airFceSm:   [POSE.jumpBall,   POSE.airFierce,  1.12],
+  airFceBk:   [POSE.airFierce,  POSE.jumpBall,   0.40],
+  airShtSm:   [POSE.jumpBall,   POSE.airShort,   1.14],
+  airShtBk:   [POSE.airShort,   POSE.jumpBall,   0.42],
+  airHvySm:   [POSE.jumpBall,   POSE.airHeavy,   1.12],
+  airHvyBk:   [POSE.airHeavy,   POSE.jumpBall,   0.40],
+  /* specials */
+  boltCoil:   [POSE.idle1,      POSE.boltWind,   0.55],
+  boltPush:   [POSE.boltWind,   POSE.boltFire,   0.42],
+  boltFollow: [POSE.boltFire,   POSE.boltWind,   0.30],
+  boltSettle: [POSE.boltWind,   POSE.idle1,      0.55],
+  riseCoil:   [POSE.idle1,      POSE.riseWind,   0.60],
+  riseSmear:  [POSE.riseWind,   POSE.rise,       1.12],
+  riseFall:   [POSE.rise,       POSE.riseWind,   0.45],
+  lanceCoil:  [POSE.idle1,      POSE.lance,      0.45],
+  lanceSmear: [POSE.idle1,      POSE.lance,      1.12],
+  lanceBack:  [POSE.lance,      POSE.idle1,      0.38],
+  fangCoil:   [POSE.jumpBall,   POSE.fang,       0.45],
+  fangSmear:  [POSE.jumpBall,   POSE.fang,       1.12],
+  fangBack:   [POSE.fang,       POSE.jumpBall,   0.40],
+  grabPull:   [POSE.grabReach,  POSE.grabHold,   0.50],
+  superRise:  [POSE.superHold,  POSE.idle1,      0.40],
+  /* The last beat back to guard. A recovery that holds one drawing for its
+     final nine frames reads as a freeze, however good the drawing is. */
+  jabSettle2: [POSE.jabStart,   POSE.idle1,      0.82],
+  strSettle2: [POSE.jab,        POSE.idle1,      0.82],
+  fceSettle2: [POSE.straight,   POSE.idle1,      0.80],
+  kckSettle2: [POSE.shortStart, POSE.idle1,      0.82],
+  midSettle2: [POSE.shortKick,  POSE.idle1,      0.80],
+  hiSettle2:  [POSE.midKick,    POSE.idle1,      0.80],
+  crSettle:   [POSE.crouch,     POSE.crJab,      0.18],
+  boltSet2:   [POSE.boltWind,   POSE.idle1,      0.80]
+};
+for (const n in TWEENS){
+  const [a, b, t] = TWEENS[n];
+  POSE[n] = tweenPose(a, b, t);
+}
+
 for (const name in POSE) Object.defineProperty(POSE[name], "$name", { value: name });
 
 /* Animations shared by every fighter. Per-character frame data (startup,
@@ -1180,7 +1280,75 @@ const HURT = {
   sommiIdle1 : [[-6,-69,18,18,0], [-12,-52,22,19,2], [-13,-33,24,33,1]],
   sommiIdle2 : [[-6,-68,18,18,0], [-12,-51,22,19,2], [-13,-32,24,32,1]],
   sommiIdle3 : [[-5,-70,18,18,0], [-12,-53,22,19,2], [-13,-34,24,34,1]],
-  win        : [[-7,-73,18,18,0], [-11,-55,22,20,2], [-12,-35,24,35,1]]
+  win        : [[-7,-73,18,18,0], [-11,-55,22,20,2], [-12,-35,24,35,1]],
+  jabCoil    : [[-7,-72,18,18,0], [-11,-54,23,20,2], [-12,-34,24,34,1]],
+  jabSmear   : [[-6,-72,18,18,0], [-10,-54,23,20,2], [-11,-34,24,34,1]],
+  jabFollow  : [[-6,-72,18,18,0], [-10,-54,23,20,2], [-11,-34,24,34,1]],
+  jabSettle  : [[-7,-72,18,18,0], [-11,-54,22,20,2], [-12,-34,24,34,1]],
+  strCoil    : [[-7,-72,18,18,0], [-11,-54,23,20,2], [-12,-34,24,34,1]],
+  strSmear   : [[-5,-72,18,18,0], [-9,-54,23,20,2], [-10,-34,24,34,1]],
+  strFollow  : [[-5,-72,18,18,0], [-9,-54,23,20,2], [-10,-34,24,34,1]],
+  strSettle  : [[-7,-72,18,18,0], [-11,-54,23,20,2], [-12,-34,24,34,1]],
+  fceCoilA   : [[-9,-72,18,18,0], [-13,-54,22,20,2], [-14,-34,24,34,1]],
+  fceCoilB   : [[-8,-71,18,18,0], [-12,-54,22,20,2], [-13,-34,24,34,1]],
+  fceSmear   : [[-1,-70,18,18,0], [-7,-53,24,20,2], [-8,-33,24,33,1]],
+  fceFollow  : [[-3,-71,18,18,0], [-8,-53,23,20,2], [-9,-33,24,33,1]],
+  fceSettle  : [[-6,-72,18,18,0], [-10,-54,23,20,2], [-11,-34,24,34,1]],
+  kckCoil    : [[-7,-72,18,18,0], [-12,-54,23,20,2], [-13,-34,24,34,1]],
+  kckSmear   : [[-9,-72,18,18,0], [-13,-54,22,20,2], [-14,-34,24,34,1]],
+  kckFollow  : [[-8,-72,18,18,0], [-13,-54,23,20,2], [-14,-34,24,34,1]],
+  kckSettle  : [[-7,-72,18,18,0], [-11,-54,22,20,2], [-12,-34,24,34,1]],
+  midSmear   : [[-12,-72,18,18,0], [-16,-54,24,20,2], [-15,-34,24,34,1]],
+  midFollow  : [[-10,-72,18,18,0], [-14,-54,22,20,2], [-15,-34,24,34,1]],
+  hiCoil     : [[-10,-71,18,18,0], [-13,-53,22,19,2], [-14,-34,24,34,1]],
+  hiSmear    : [[-18,-69,18,18,0], [-19,-52,26,19,2], [-16,-33,24,33,1]],
+  hiFollow   : [[-14,-70,18,18,0], [-17,-53,24,20,2], [-16,-33,24,33,1]],
+  hiSettle   : [[-9,-72,18,18,0], [-13,-54,23,20,2], [-13,-34,24,34,1]],
+  crCoil     : [[-7,-56,18,18,0], [-11,-38,22,18,2], [-12,-20,24,20,1]],
+  crJabSmear : [[-6,-57,18,18,0], [-11,-39,22,18,2], [-12,-21,24,21,1]],
+  crJabBack  : [[-6,-56,18,18,0], [-11,-38,22,17,2], [-12,-21,24,21,1]],
+  crStrSmear : [[-6,-58,18,18,0], [-11,-40,22,18,2], [-12,-22,24,22,1]],
+  crStrBack  : [[-6,-57,18,18,0], [-11,-39,22,18,2], [-12,-21,24,21,1]],
+  crFceSmear : [[-5,-62,18,18,0], [-11,-44,22,20,2], [-12,-24,24,24,1]],
+  crFceBack  : [[-6,-59,18,18,0], [-11,-41,22,19,2], [-12,-22,24,22,1]],
+  crKckSmear : [[-7,-57,18,18,0], [-12,-39,22,18,2], [-13,-21,24,21,1]],
+  crKckBack  : [[-7,-56,18,18,0], [-12,-38,22,17,2], [-13,-21,24,21,1]],
+  crMidSmear : [[-10,-56,18,18,0], [-16,-38,24,18,2], [-15,-20,24,20,1]],
+  crMidBack  : [[-9,-56,18,18,0], [-13,-38,22,18,2], [-14,-20,24,20,1]],
+  swpCoil    : [[-8,-55,18,18,0], [-13,-37,23,18,2], [-13,-19,24,19,1]],
+  swpSmear   : [[-16,-49,18,18,0], [-20,-31,26,16,2], [-17,-15,24,15,1]],
+  swpFollow  : [[-13,-52,18,18,0], [-17,-34,24,17,2], [-16,-17,24,17,1]],
+  airJabSm   : [[-6,-73,18,18,0], [-11,-56,22,18,2], [-12,-38,24,38,1]],
+  airJabBk   : [[-6,-73,18,18,0], [-11,-56,22,18,2], [-12,-38,24,38,1]],
+  airFceSm   : [[-6,-74,18,18,0], [-11,-57,22,19,2], [-12,-38,24,38,1]],
+  airFceBk   : [[-6,-74,18,18,0], [-11,-57,22,19,2], [-12,-38,24,38,1]],
+  airShtSm   : [[-6,-73,18,18,0], [-11,-56,22,18,2], [-12,-38,24,38,1]],
+  airShtBk   : [[-6,-73,18,18,0], [-11,-56,22,18,2], [-12,-38,24,38,1]],
+  airHvySm   : [[-8,-73,18,18,0], [-13,-56,24,18,2], [-12,-38,24,38,1]],
+  airHvyBk   : [[-7,-73,18,18,0], [-12,-56,23,18,2], [-12,-38,24,38,1]],
+  boltCoil   : [[-9,-71,18,18,0], [-13,-53,22,20,2], [-14,-33,24,33,1]],
+  boltPush   : [[-8,-71,18,18,0], [-12,-53,22,20,2], [-13,-33,24,33,1]],
+  boltFollow : [[-7,-71,18,18,0], [-10,-53,22,20,2], [-11,-33,24,33,1]],
+  boltSettle : [[-9,-72,18,18,0], [-13,-54,23,20,2], [-13,-34,24,34,1]],
+  riseCoil   : [[-6,-65,18,18,0], [-11,-47,22,19,2], [-12,-28,24,28,1]],
+  riseSmear  : [[-8,-76,18,18,0], [-11,-58,22,21,2], [-12,-37,24,37,1]],
+  riseFall   : [[-7,-68,18,18,0], [-11,-50,22,19,2], [-12,-31,24,31,1]],
+  lanceCoil  : [[-7,-72,18,18,0], [-11,-54,22,20,2], [-12,-34,24,34,1]],
+  lanceSmear : [[-6,-72,18,18,0], [-10,-54,22,20,2], [-11,-34,24,34,1]],
+  lanceBack  : [[-6,-72,18,18,0], [-10,-54,22,20,2], [-11,-34,24,34,1]],
+  fangCoil   : [[-8,-73,18,18,0], [-12,-55,23,18,2], [-12,-37,24,37,1]],
+  fangSmear  : [[-12,-72,18,18,0], [-13,-54,24,18,2], [-12,-36,24,36,1]],
+  fangBack   : [[-9,-72,18,18,0], [-12,-55,23,18,2], [-12,-37,24,37,1]],
+  grabPull   : [[-5,-71,18,18,0], [-10,-53,22,20,2], [-11,-33,24,33,1]],
+  superRise  : [[-10,-71,18,18,0], [-14,-53,23,20,2], [-14,-33,24,33,1]],
+  jabSettle2 : [[-7,-72,18,18,0], [-11,-54,22,20,2], [-12,-34,24,34,1]],
+  strSettle2 : [[-7,-72,18,18,0], [-11,-54,22,20,2], [-12,-34,24,34,1]],
+  fceSettle2 : [[-7,-72,18,18,0], [-11,-54,23,20,2], [-12,-34,24,34,1]],
+  kckSettle2 : [[-7,-72,18,18,0], [-11,-54,22,20,2], [-12,-34,24,34,1]],
+  midSettle2 : [[-7,-72,18,18,0], [-11,-54,22,20,2], [-12,-34,24,34,1]],
+  hiSettle2  : [[-8,-72,18,18,0], [-12,-54,22,20,2], [-13,-34,24,34,1]],
+  crSettle   : [[-7,-55,18,18,0], [-11,-37,22,17,2], [-12,-20,24,20,1]],
+  boltSet2   : [[-8,-72,18,18,0], [-12,-54,22,20,2], [-13,-34,24,34,1]]
 };
 /* A pose with no entry should be impossible — the bake covers every pose in
    the rig — but standing boxes are a safer failure than none at all. */
@@ -1200,6 +1368,32 @@ const HURT_FALLBACK = HURT.idle1;
           "throw"    unblockable, requires proximity
    ========================================================================== */
 
+/* A phase used to hold a single drawing for its whole length: an eighteen
+   frame recovery was one pose for eighteen frames, which was the most retro
+   thing left in the game. A phase may now be a list, spread across the SAME
+   frame count — so the frame data the game is actually played on is untouched
+   while the number of drawings filling it goes up.
+
+   Entries are a pose, or [pose, frames]. The last entry absorbs whatever is
+   left, so a list always fills its phase exactly however the frame data is
+   tuned later, and a phase too short for its list simply drops the tail. */
+function expandPhase(spec, total){
+  if (total <= 0) return [];
+  if (!Array.isArray(spec)) return [[spec, total]];
+  const out = [];
+  let used = 0;
+  for (let i = 0; i < spec.length && used < total; i++){
+    const e = spec[i], pose = Array.isArray(e) ? e[0] : e;
+    let n = (i === spec.length - 1) ? total - used
+          : Array.isArray(e) ? e[1]
+          : Math.max(1, Math.round(total / spec.length));
+    n = Math.max(0, Math.min(n, total - used));
+    if (n > 0){ out.push([pose, n]); used += n; }
+  }
+  if (used < total && out.length) out[out.length - 1][1] += total - used;
+  return out.length ? out : [[Array.isArray(spec[0]) ? spec[0][0] : spec[0], total]];
+}
+
 function mkMove(o){
   const m = Object.assign({
     type:"normal", level:"mid", stance:"stand",
@@ -1212,11 +1406,10 @@ function mkMove(o){
     poses:[POSE.idle1, POSE.idle1, POSE.idle1], hit:null, onActive:null
   }, o);
   const p = m.poses;
-  m.anim = { loop:false, frames:[
-    [p[0], m.startup],
-    [p[1], m.active],
-    [p[2] !== undefined ? p[2] : p[1], m.recovery]
-  ]};
+  m.anim = { loop:false, frames:
+    expandPhase(p[0], m.startup)
+      .concat(expandPhase(p[1], m.active))
+      .concat(expandPhase(p[2] !== undefined ? p[2] : p[1], m.recovery)) };
   m.total = m.startup + m.active + m.recovery;
   return m;
 }
@@ -1225,65 +1418,103 @@ function mkMove(o){
 const NORMALS = {
   stLP: mkMove({ id:"stLP", name:"Jab", startup:3, active:3, recovery:6,
     dmg:6, hitstun:12, blockstun:8, cancelable:true, pushHit:380, pushBlock:300,
-    hit:{x:17,y:-58,w:20,h:14}, poses:[POSE.jabStart,POSE.jab,POSE.jabStart] }),
+    hit:{x:17,y:-58,w:20,h:14}, poses:[[[POSE.jabCoil,1],POSE.jabStart],
+           [[POSE.jabSmear,1],POSE.jab],
+           [[POSE.jabFollow,2],[POSE.jabStart,2],[POSE.jabSettle,1],POSE.jabSettle2]] }),
   stMP: mkMove({ id:"stMP", name:"Straight", startup:5, active:4, recovery:11,
     dmg:11, hitstun:15, blockstun:11, cancelable:true,
-    hit:{x:20,y:-56,w:21,h:14}, poses:[POSE.jabStart,POSE.straight,POSE.jab] }),
+    hit:{x:20,y:-56,w:21,h:14}, poses:[[[POSE.strCoil,2],POSE.jabStart],
+           [[POSE.strSmear,1],POSE.straight],
+           [[POSE.strFollow,3],[POSE.jab,3],[POSE.strSettle,3],POSE.strSettle2]] }),
   stHP: mkMove({ id:"stHP", name:"Fierce", startup:8, active:5, recovery:18,
     dmg:17, hitstun:19, blockstun:13, cancelable:true, pushHit:760, pushBlock:520,
-    hit:{x:22,y:-55,w:23,h:16}, poses:[POSE.fierceWind,POSE.fierce,POSE.straight] }),
+    hit:{x:22,y:-55,w:23,h:16}, poses:[[[POSE.fceCoilA,3],[POSE.fierceWind,3],POSE.fceCoilB],
+           [[POSE.fceSmear,1],POSE.fierce],
+           [[POSE.fceFollow,4],[POSE.straight,5],[POSE.fceSettle,5],POSE.fceSettle2]] }),
   stLK: mkMove({ id:"stLK", name:"Short", startup:4, active:3, recovery:8,
     dmg:6, hitstun:12, blockstun:8, cancelable:true, sfx:"kick",
-    hit:{x:16,y:-33,w:20,h:13}, poses:[POSE.shortStart,POSE.shortKick,POSE.shortStart] }),
+    hit:{x:16,y:-33,w:20,h:13}, poses:[[[POSE.kckCoil,2],POSE.shortStart],
+           [[POSE.kckSmear,1],POSE.shortKick],
+           [[POSE.kckFollow,3],[POSE.shortStart,2],[POSE.kckSettle,2],POSE.kckSettle2]] }),
   stMK: mkMove({ id:"stMK", name:"Forward", startup:6, active:4, recovery:13,
     dmg:12, hitstun:15, blockstun:11, cancelable:true, sfx:"kick",
-    hit:{x:20,y:-38,w:22,h:13}, poses:[POSE.shortStart,POSE.midKick,POSE.shortKick] }),
+    hit:{x:20,y:-38,w:22,h:13}, poses:[[[POSE.kckCoil,3],POSE.shortStart],
+           [[POSE.midSmear,1],POSE.midKick],
+           [[POSE.midFollow,4],[POSE.shortKick,3],[POSE.kckSettle,3],POSE.midSettle2]] }),
   stHK: mkMove({ id:"stHK", name:"Roundhouse", startup:9, active:5, recovery:20,
     dmg:18, hitstun:20, blockstun:14, knockdown:true, pushHit:900, pushBlock:600, sfx:"kick",
-    hit:{x:19,y:-55,w:24,h:18}, poses:[POSE.shortStart,POSE.highKick,POSE.midKick] }),
+    hit:{x:19,y:-55,w:24,h:18}, poses:[[[POSE.kckCoil,3],[POSE.shortStart,3],POSE.hiCoil],
+           [[POSE.hiSmear,1],POSE.highKick],
+           [[POSE.hiFollow,5],[POSE.midKick,5],[POSE.hiSettle,5],POSE.hiSettle2]] }),
 
   crLP: mkMove({ id:"crLP", name:"Crouch Jab", stance:"crouch", startup:3, active:3, recovery:6,
     dmg:5, hitstun:11, blockstun:8, cancelable:true, pushHit:340, pushBlock:260,
-    hit:{x:15,y:-45,w:19,h:12}, poses:[POSE.crouch,POSE.crJab,POSE.crouch] }),
+    hit:{x:15,y:-45,w:19,h:12}, poses:[[[POSE.crCoil,1],POSE.crouch],
+           [[POSE.crJabSmear,1],POSE.crJab],
+           [[POSE.crJabBack,2],POSE.crouch]] }),
   crMP: mkMove({ id:"crMP", name:"Crouch Strong", stance:"crouch", startup:5, active:4, recovery:11,
     dmg:10, hitstun:14, blockstun:10, cancelable:true,
-    hit:{x:16,y:-54,w:19,h:15}, poses:[POSE.crouch,POSE.crStrong,POSE.crouch] }),
+    hit:{x:16,y:-54,w:19,h:15}, poses:[[[POSE.crCoil,2],POSE.crouch],
+           [[POSE.crStrSmear,1],POSE.crStrong],
+           [[POSE.crStrBack,4],POSE.crouch]] }),
   crHP: mkMove({ id:"crHP", name:"Crouch Fierce", stance:"crouch", startup:6, active:6, recovery:17,
     dmg:16, hitstun:18, blockstun:12, launch:900, knockdown:true, cancelable:false,
-    hit:{x:8,y:-72,w:20,h:28}, poses:[POSE.crouch,POSE.crFierce,POSE.crouch] }),
+    hit:{x:8,y:-72,w:20,h:28}, poses:[[[POSE.crCoil,3],POSE.crouch],
+           [[POSE.crFceSmear,1],POSE.crFierce],
+           [[POSE.crFceBack,5],[POSE.crSettle,4],POSE.crouch]] }),
   crLK: mkMove({ id:"crLK", name:"Crouch Short", stance:"crouch", level:"low", startup:4, active:3, recovery:7,
     dmg:5, hitstun:11, blockstun:8, cancelable:true, sfx:"kick",
-    hit:{x:14,y:-13,w:19,h:12}, poses:[POSE.crouch,POSE.crShort,POSE.crouch] }),
+    hit:{x:14,y:-13,w:19,h:12}, poses:[[[POSE.crCoil,1],POSE.crouch],
+           [[POSE.crKckSmear,1],POSE.crShort],
+           [[POSE.crKckBack,3],POSE.crouch]] }),
   crMK: mkMove({ id:"crMK", name:"Crouch Forward", stance:"crouch", level:"low", startup:6, active:4, recovery:13,
     dmg:11, hitstun:14, blockstun:10, cancelable:true, sfx:"kick",
-    hit:{x:16,y:-15,w:23,h:13}, poses:[POSE.crouch,POSE.crMid,POSE.crouch] }),
+    hit:{x:16,y:-15,w:23,h:13}, poses:[[[POSE.crCoil,2],POSE.crouch],
+           [[POSE.crMidSmear,1],POSE.crMid],
+           [[POSE.crMidBack,4],POSE.crouch]] }),
   crHK: mkMove({ id:"crHK", name:"Sweep", stance:"crouch", level:"low", startup:8, active:5, recovery:23,
     dmg:14, hitstun:18, blockstun:13, knockdown:true, pushHit:600, sfx:"sweep",
-    hit:{x:15,y:-11,w:28,h:11}, poses:[POSE.sweepWind,POSE.sweep,POSE.sweepWind] }),
+    hit:{x:15,y:-11,w:28,h:11}, poses:[[[POSE.swpCoil,3],POSE.sweepWind],
+           [[POSE.swpSmear,1],POSE.sweep],
+           [[POSE.swpFollow,5],[POSE.sweepWind,4],[POSE.crSettle,4],POSE.crouch]] }),
 
   jLP: mkMove({ id:"jLP", name:"Air Jab", stance:"air", level:"overhead", air:true,
     startup:4, active:9, recovery:2, dmg:7, hitstun:13, blockstun:9,
-    hit:{x:15,y:-58,w:20,h:16}, poses:[POSE.airJab,POSE.airJab,POSE.airJab] }),
+    hit:{x:15,y:-58,w:20,h:16}, poses:[POSE.jumpBall,
+           [[POSE.airJabSm,1],POSE.airJab],
+           [[POSE.airJabBk,3],POSE.jumpBall]] }),
   jMP: mkMove({ id:"jMP", name:"Air Strong", stance:"air", level:"overhead", air:true,
     startup:5, active:9, recovery:2, dmg:12, hitstun:16, blockstun:11,
-    hit:{x:17,y:-54,w:21,h:18}, poses:[POSE.airJab,POSE.airFierce,POSE.airFierce] }),
+    hit:{x:17,y:-54,w:21,h:18}, poses:[[[POSE.jumpBall,2],POSE.airJab],
+           [[POSE.airFceSm,1],POSE.airFierce],
+           [[POSE.airFceBk,4],POSE.jumpBall]] }),
   jHP: mkMove({ id:"jHP", name:"Air Fierce", stance:"air", level:"overhead", air:true,
     startup:6, active:9, recovery:2, dmg:16, hitstun:19, blockstun:13, pushHit:700,
-    hit:{x:17,y:-52,w:23,h:20}, poses:[POSE.airJab,POSE.airFierce,POSE.airFierce] }),
+    hit:{x:17,y:-52,w:23,h:20}, poses:[[[POSE.jumpBall,2],POSE.airJab],
+           [[POSE.airFceSm,1],POSE.airFierce],
+           [[POSE.airFceBk,4],POSE.jumpBall]] }),
   jLK: mkMove({ id:"jLK", name:"Air Short", stance:"air", level:"overhead", air:true, sfx:"kick",
     startup:4, active:11, recovery:2, dmg:7, hitstun:13, blockstun:9,
-    hit:{x:13,y:-36,w:20,h:16}, poses:[POSE.airShort,POSE.airShort,POSE.airShort] }),
+    hit:{x:13,y:-36,w:20,h:16}, poses:[POSE.jumpBall,
+           [[POSE.airShtSm,1],POSE.airShort],
+           [[POSE.airShtBk,3],POSE.jumpBall]] }),
   jMK: mkMove({ id:"jMK", name:"Air Forward", stance:"air", level:"overhead", air:true, sfx:"kick",
     startup:5, active:11, recovery:2, dmg:12, hitstun:16, blockstun:11,
-    hit:{x:17,y:-38,w:21,h:16}, poses:[POSE.airShort,POSE.airHeavy,POSE.airHeavy] }),
+    hit:{x:17,y:-38,w:21,h:16}, poses:[[[POSE.jumpBall,2],POSE.airShort],
+           [[POSE.airHvySm,1],POSE.airHeavy],
+           [[POSE.airHvyBk,4],POSE.jumpBall]] }),
   jHK: mkMove({ id:"jHK", name:"Air Roundhouse", stance:"air", level:"overhead", air:true, sfx:"kick",
     startup:6, active:11, recovery:2, dmg:17, hitstun:20, blockstun:14, pushHit:760,
-    hit:{x:18,y:-38,w:24,h:20}, poses:[POSE.airShort,POSE.airHeavy,POSE.airHeavy] }),
+    hit:{x:18,y:-38,w:24,h:20}, poses:[[[POSE.jumpBall,2],POSE.airShort],
+           [[POSE.airHvySm,1],POSE.airHeavy],
+           [[POSE.airHvyBk,4],POSE.jumpBall]] }),
 
   throwAttempt: mkMove({ id:"throw", name:"Throw", type:"throw", level:"throw",
     startup:2, active:2, recovery:18, dmg:24, hitstun:0, blockstun:0, knockdown:true,
     meterHit:40, sfx:"throw", hit:{x:12,y:-58,w:22,h:44},
-    poses:[POSE.grabReach,POSE.grabHold,POSE.grabReach] })
+    poses:[POSE.grabReach,
+           [[POSE.grabPull,2],POSE.grabHold],
+           [[POSE.grabHold,3],POSE.grabReach]] })
 };
 
 /* The button a normal comes out of, per stance. */
@@ -1319,7 +1550,9 @@ const CHARACTERS = [
   specials:[
     { key:"bolt", check:(mb,b)=> (b & PUNCHES) && mb.qcf(),
       make:(b)=> sp({ id:"bolt_"+b, name:"Gale Bolt", startup:11, active:2, recovery:29,
-        dmg:0, sfx:"fire", poses:[POSE.boltWind,POSE.boltFire,POSE.boltFire], hit:null,
+        dmg:0, sfx:"fire", poses:[[[POSE.boltCoil,3],POSE.boltWind],
+                [[POSE.boltPush,2],POSE.boltFire],
+                [[POSE.boltFollow,5],[POSE.boltWind,5],[POSE.boltSettle,5],POSE.boltSet2]], hit:null,
         proj:{ kind:"bolt", vx: b===IN_LP?740:b===IN_MP?900:1080, dmg:12, chip:3,
                hitstun:16, blockstun:12, w:18, h:14, oy:-46, ox:20, pushHit:520 } }) },
     { key:"rise", check:(mb,b)=> (b & PUNCHES) && mb.dp(),
@@ -1327,17 +1560,23 @@ const CHARACTERS = [
         dmg: b===IN_LP?16:b===IN_MP?19:22, hitstun:22, blockstun:14, chip:4,
         knockdown:true, launch:1000, pushHit:420, invuln: b===IN_LP?6:8,
         moveX: b===IN_HP?300:220, moveY:1360, air:true, sfx:"heavy",
-        poses:[POSE.riseWind,POSE.rise,POSE.rise], hit:{x:2,y:-80,w:24,h:44} }) },
+        poses:[[[POSE.riseCoil,2],POSE.riseWind],
+                [[POSE.riseSmear,2],POSE.rise],
+                [[POSE.rise,6],[POSE.riseFall,8],POSE.land]], hit:{x:2,y:-80,w:24,h:44} }) },
     { key:"heel", check:(mb,b)=> (b & KICKS) && mb.qcb(),
       make:(b)=> sp({ id:"heel_"+b, name:"Cyclone Heel", startup:7, active:16, recovery:20,
         dmg:8, hitstun:14, blockstun:10, chip:2, maxHits:2, rehit:8, sfx:"kick",
         moveX: b===IN_LK?210:b===IN_MK?270:330, pushHit:300, pushBlock:200,
-        poses:[POSE.spin1,POSE.spin2,POSE.spin1], hit:{x:6,y:-58,w:30,h:36} }) }
+        poses:[[[POSE.kckCoil,3],POSE.spin1],
+                [POSE.spin2,POSE.spin1,POSE.spin2,POSE.spin1],
+                [[POSE.spin2,5],[POSE.land,5],POSE.kckSettle]], hit:{x:6,y:-58,w:30,h:36} }) }
   ],
   super:{ key:"tempest", name:"Tempest Bolt", check:(mb,b)=> (b & PUNCHES) && mb.doubleQcf(),
     make:()=> sp({ id:"super_tempest", name:"Tempest Bolt", type:"super",
       startup:14, active:2, recovery:38, dmg:0, invuln:12, sfx:"super",
-      poses:[POSE.superHold,POSE.boltFire,POSE.boltFire], hit:null,
+      poses:[[[POSE.superRise,4],POSE.superHold],
+              [[POSE.boltPush,2],POSE.boltFire],
+              [[POSE.boltFollow,6],[POSE.boltWind,6],[POSE.boltSettle,6],POSE.boltSet2]], hit:null,
       proj:{ kind:"tempest", vx:660, dmg:11, chip:3, hitstun:16, blockstun:12,
              w:34, h:30, oy:-52, ox:22, hits:4, pushHit:900 } }) }
 },
@@ -1359,22 +1598,30 @@ const CHARACTERS = [
         dmg: b===IN_LP?16:b===IN_MP?19:22, hitstun:20, blockstun:14, chip:4,
         knockdown:true, pushHit:900, pushBlock:520, sfx:"heavy",
         moveX: b===IN_LP?420:b===IN_MP?520:640,
-        poses:[POSE.fierceWind,POSE.fierce,POSE.straight], hit:{x:8,y:-62,w:32,h:40} }) },
+        poses:[[[POSE.fceCoilA,4],[POSE.fierceWind,4],POSE.fceCoilB],
+                [[POSE.fceSmear,2],POSE.fierce],
+                [[POSE.fceFollow,5],[POSE.straight,5],[POSE.fceSettle,5],POSE.fceSettle2]], hit:{x:8,y:-62,w:32,h:40} }) },
     { key:"clasp", check:(mb,b)=> (b & PUNCHES) && mb.hcf(),
       make:()=> sp({ id:"clasp", name:"Iron Clasp", type:"throw", level:"throw",
         startup:5, active:3, recovery:26, dmg:30, knockdown:true, meterHit:46, sfx:"throw",
-        poses:[POSE.grabReach,POSE.grabHold,POSE.grabReach], hit:{x:8,y:-62,w:26,h:50} }) },
+        poses:[[[POSE.jabCoil,2],POSE.grabReach],
+                [[POSE.grabPull,3],POSE.grabHold],
+                [[POSE.grabHold,5],POSE.grabReach]], hit:{x:8,y:-62,w:26,h:50} }) },
     { key:"anvil", check:(mb,b)=> (b & KICKS) && mb.qcb(),
       make:(b)=> sp({ id:"anvil_"+b, name:"Anvil Drop", level:"low", startup:14, active:8, recovery:22,
         dmg:20, hitstun:20, blockstun:14, chip:5, knockdown:true, sfx:"heavy",
         moveX: b===IN_LK?160:b===IN_MK?240:320, moveY:1150, air:true,
-        poses:[POSE.jumpUp,POSE.sweep,POSE.sweepWind], hit:{x:-14,y:-16,w:50,h:16} }) }
+        poses:[[[POSE.riseCoil,3],POSE.jumpUp],
+                [[POSE.swpSmear,2],POSE.sweep],
+                [[POSE.swpFollow,5],[POSE.sweepWind,6],POSE.land]], hit:{x:-14,y:-16,w:50,h:16} }) }
   ],
   super:{ key:"wrecking", name:"Wrecking Line", check:(mb,b)=> (b & PUNCHES) && mb.doubleQcf(),
     make:()=> sp({ id:"super_wrecking", name:"Wrecking Line", type:"super",
       startup:10, active:26, recovery:34, dmg:9, hitstun:14, blockstun:10, chip:3,
       maxHits:5, rehit:6, invuln:10, knockdown:true, moveX:420, sfx:"super",
-      poses:[POSE.superHold,POSE.fierce,POSE.straight], hit:{x:6,y:-64,w:36,h:46} }) }
+      poses:[[[POSE.superRise,4],POSE.superHold],
+              [[POSE.fceSmear,2],POSE.fierce],
+              [[POSE.fceFollow,6],[POSE.straight,6],[POSE.fceSettle,6],POSE.fceSettle2]], hit:{x:6,y:-64,w:36,h:46} }) }
 },
 {
   key:"vex", name:"Vex", role:"Speed / charge",
@@ -1387,25 +1634,33 @@ const CHARACTERS = [
   specials:[
     { key:"lance", check:(mb,b)=> (b & PUNCHES) && mb.chargedFwd(), charge:"back",
       make:(b)=> sp({ id:"lance_"+b, name:"Static Lance", startup:8, active:2, recovery:26,
-        dmg:0, sfx:"fire", poses:[POSE.jabStart,POSE.lance,POSE.lance], hit:null,
+        dmg:0, sfx:"fire", poses:[[[POSE.lanceCoil,3],POSE.jabStart],
+                [[POSE.lanceSmear,2],POSE.lance],
+                [[POSE.lanceBack,5],[POSE.jabStart,4],[POSE.jabSettle,4],POSE.jabSettle2]], hit:null,
         proj:{ kind:"lance", vx: b===IN_LP?980:b===IN_MP?1140:1320, dmg:10, chip:2,
                hitstun:15, blockstun:11, w:20, h:10, oy:-48, ox:22, pushHit:460 } }) },
     { key:"fang", check:(mb,b)=> (b & KICKS) && mb.chargedUp(), charge:"down",
       make:(b)=> sp({ id:"fang_"+b, name:"Sky Fang", startup:4, active:14, recovery:22,
         dmg: b===IN_LK?14:b===IN_MK?16:18, hitstun:20, blockstun:13, chip:3,
         knockdown:true, launch:900, invuln:5, moveX: b===IN_HK?360:260, moveY:1440,
-        air:true, sfx:"kick", poses:[POSE.riseWind,POSE.fang,POSE.fang], hit:{x:0,y:-84,w:26,h:46} }) },
+        air:true, sfx:"kick", poses:[[[POSE.fangCoil,2],POSE.riseWind],
+                [[POSE.fangSmear,2],POSE.fang],
+                [[POSE.fang,5],[POSE.fangBack,6],POSE.jumpFall]], hit:{x:0,y:-84,w:26,h:46} }) },
     { key:"razor", check:(mb,b)=> (b & KICKS) && mb.qcf(),
       make:(b)=> sp({ id:"razor_"+b, name:"Razor Spin", startup:6, active:14, recovery:19,
         dmg:7, hitstun:13, blockstun:10, chip:2, maxHits:2, rehit:7, sfx:"kick",
         moveX: b===IN_LK?300:b===IN_MK?380:460, pushHit:280, pushBlock:200,
-        poses:[POSE.spin2,POSE.spin1,POSE.spin2], hit:{x:6,y:-52,w:32,h:34} }) }
+        poses:[[[POSE.kckCoil,3],POSE.spin2],
+                [POSE.spin1,POSE.spin2,POSE.spin1,POSE.spin2],
+                [[POSE.spin1,5],[POSE.land,5],POSE.kckSettle]], hit:{x:6,y:-52,w:32,h:34} }) }
   ],
   super:{ key:"circuit", name:"Circuit Break", check:(mb,b)=> (b & KICKS) && mb.doubleQcf(),
     make:()=> sp({ id:"super_circuit", name:"Circuit Break", type:"super",
       startup:8, active:24, recovery:30, dmg:7, hitstun:12, blockstun:9, chip:2,
       maxHits:6, rehit:4, invuln:8, knockdown:true, moveX:480, sfx:"super",
-      poses:[POSE.superHold,POSE.spin1,POSE.spin2], hit:{x:4,y:-58,w:34,h:40} }) }
+      poses:[[[POSE.superRise,4],POSE.superHold],
+              [POSE.spin1,POSE.spin2,POSE.spin1,POSE.spin2],
+              [[POSE.spin1,6],[POSE.land,6],POSE.kckSettle]], hit:{x:4,y:-58,w:34,h:40} }) }
 }
 ,
 {
@@ -1429,26 +1684,34 @@ const CHARACTERS = [
   specials:[
     { key:"flick", check:(mb,b)=> (b & PUNCHES) && mb.qcb(),
       make:(b)=> sp({ id:"flick_"+b, name:"Spoon Flick", startup:10, active:2, recovery:26,
-        dmg:0, sfx:"fire", poses:[POSE.jabStart,POSE.lance,POSE.lance], hit:null,
+        dmg:0, sfx:"fire", poses:[[[POSE.lanceCoil,3],POSE.jabStart],
+                [[POSE.lanceSmear,2],POSE.lance],
+                [[POSE.lanceBack,5],[POSE.jabStart,4],[POSE.jabSettle,4],POSE.jabSettle2]], hit:null,
         proj:{ kind:"bolt", vx: b===IN_LP?520:b===IN_MP?620:720, dmg:8, chip:3,
                hitstun:14, blockstun:11, w:14, h:12, oy:-44, ox:22, pushHit:420 } }) },
     { key:"slipper", check:(mb,b)=> (b & KICKS) && mb.dp(),
       make:(b)=> sp({ id:"slipper_"+b, name:"Slipper Rise", startup:4, active:12, recovery:26,
         dmg: b===IN_LK?14:b===IN_MK?16:18, hitstun:20, blockstun:13, chip:3,
         knockdown:true, launch:880, invuln: b===IN_LK?5:7, moveX:200, moveY:1330,
-        air:true, sfx:"kick", poses:[POSE.riseWind,POSE.fang,POSE.fang],
+        air:true, sfx:"kick", poses:[[[POSE.fangCoil,2],POSE.riseWind],
+                [[POSE.fangSmear,2],POSE.fang],
+                [[POSE.fang,5],[POSE.fangBack,6],POSE.jumpFall]],
         hit:{x:0,y:-80,w:26,h:44} }) },
     { key:"slide", check:(mb,b)=> (b & KICKS) && mb.hcf(),
       make:(b)=> sp({ id:"slide_"+b, name:"Sock Slide", level:"low", startup:9, active:10,
         recovery:26, dmg:13, hitstun:17, blockstun:12, chip:3, knockdown:true,
         moveX: b===IN_LK?420:b===IN_MK?520:620, pushHit:560, sfx:"sweep",
-        poses:[POSE.sweepWind,POSE.sweep,POSE.sweepWind], hit:{x:12,y:-12,w:32,h:12} }) }
+        poses:[[[POSE.swpCoil,3],POSE.sweepWind],
+                [[POSE.swpSmear,2],POSE.sweep],
+                [[POSE.swpFollow,5],[POSE.sweepWind,6],POSE.crouch]], hit:{x:12,y:-12,w:32,h:12} }) }
   ],
   super:{ key:"service", name:"Full Service", check:(mb,b)=> (b & PUNCHES) && mb.doubleQcf(),
     make:()=> sp({ id:"super_service", name:"Full Service", type:"super",
       startup:11, active:24, recovery:32, dmg:8, hitstun:13, blockstun:10, chip:2,
       maxHits:6, rehit:5, invuln:9, knockdown:true, moveX:330, sfx:"super",
-      poses:[POSE.superHold,POSE.straight,POSE.jab], hit:{x:14,y:-58,w:38,h:26} }) }
+      poses:[[[POSE.superRise,4],POSE.superHold],
+              [[POSE.strSmear,2],POSE.straight],
+              [[POSE.strFollow,6],[POSE.jab,6],[POSE.strSettle,6],POSE.strSettle2]], hit:{x:14,y:-58,w:38,h:26} }) }
 }
 ];
 
